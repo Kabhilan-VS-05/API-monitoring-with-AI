@@ -1,0 +1,1 @@
+{"category": "hospital_operations", "sequence_length": 20, "n_features": 10, "accuracy": 0.9166666865348816, "auc": 0.5, "trained": true, "last_trained": "2025-11-24T07:34:03.695936"}

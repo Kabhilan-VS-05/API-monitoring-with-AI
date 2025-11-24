@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Live API Check | Insight Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/remixicon@2.5.0/fonts/remixicon.css"
+    />
+    <link rel="stylesheet" href="/static/style_pro.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <button id="themeToggle" class="theme-toggle" aria-label="Toggle dark mode">
+      <i class="ri-sun-line"></i>
+    </button>
+    
+    <div class="dashboard-grid">
+      <header class="panel panel-header">
+        <div class="header-top">
+          <h1>
+            <i class="ri-radar-line"></i>
+            Live API Check
+          </h1>
+          <a href="/advanced_monitor" class="button-secondary">
+            <i class="ri-cpu-line"></i>
+            <span>Monitor with API Co-pilot AI</span>
+          </a>
+        </div>
+        
+        <section class="input-section">
+          <div class="input-group">
+            <label for="urlInput">API Endpoint URL</label>
+            <input
+              type="url"
+              id="urlInput"
+              placeholder="https://api.example.com/v1/status"
+            />
+          </div>
+          <div class="input-group">
+            <label for="headerNameInput">Header Name (Optional)</label>
+            <input
+              type="text"
+              id="headerNameInput"
+              placeholder="Authorization"
+            />
+          </div>
+          <div class="input-group">
+            <label for="headerValueInput">Header Value (Optional)</label>
+            <input
+              type="text"
+              id="headerValueInput"
+              placeholder="Bearer your_token"
+            />
+          </div>
+          <div class="input-group button-group">
+            <button id="checkButton" class="button-primary">
+              <i class="ri-play-line"></i>
+              <span>Check API</span>
+            </button>
+          </div>
+        </section>
+      </header>
+
+      <aside class="panel panel-urls">
+        <h2>Monitored URLs</h2>
+        <div id="urls-list" class="urls-list">
+          <p class="placeholder">No URLs monitored yet.</p>
+        </div>
+        <div id="urls-pagination" class="pagination-controls"></div>
+      </aside>
+
+      <main class="panel panel-main">
+        <div id="result-container">
+          <div id="result" class="result-box">
+            <p class="placeholder">
+              Check an API to see results and performance chart...
+            </p>
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="latencyChart"></canvas>
+        </div>
+      </main>
+
+      <footer class="panel panel-logs">
+        <h2>API Check Logs</h2>
+        <div id="logs" class="logs-box">
+          <table class="log-table">
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th>URL</th>
+                <th>Code</th>
+                <th>Latency</th>
+                <th>Timestamp</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="placeholder">
+                <td colspan="5">No logs yet.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div id="logs-pagination" class="pagination-controls"></div>
+      </footer>
+    </div>
+    
+    <script src="/static/script.js"></script>
+  </body>
+</html>

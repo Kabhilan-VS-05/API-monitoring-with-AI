@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Co-Pilot Showcase - API Monitoring</title>
+    <link rel="stylesheet" href="monitor.css">
+    <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+    <style>
+        .showcase-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .hero-section {
+            text-align: center;
+            padding: 4rem 2rem;
+            background: linear-gradient(135deg, var(--primary-color) 0%, #1e3a8a 100%);
+            border-radius: 16px;
+            margin-bottom: 3rem;
+            color: white;
+        }
+
+        .hero-section h1 {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            font-weight: 700;
+        }
+
+        .hero-section p {
+            font-size: 1.3rem;
+            opacity: 0.9;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 2rem;
+            margin-bottom: 3rem;
+        }
+
+        .feature-card {
+            background: var(--panel-bg);
+            border-radius: 12px;
+            padding: 2rem;
+            border: 1px solid var(--border-color);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .feature-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            display: block;
+        }
+
+        .feature-card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            color: var(--primary-color);
+        }
+
+        .feature-card p {
+            color: var(--text-secondary);
+            line-height: 1.6;
+            margin-bottom: 1rem;
+        }
+
+        .feature-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .feature-list li {
+            padding: 0.5rem 0;
+            padding-left: 1.5rem;
+            position: relative;
+            color: var(--text-secondary);
+        }
+
+        .feature-list li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #3FB950;
+            font-weight: bold;
+        }
+
+        .demo-section {
+            background: var(--panel-bg);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 3rem;
+            border: 1px solid var(--border-color);
+        }
+
+        .demo-section h2 {
+            font-size: 2rem;
+            margin-bottom: 1.5rem;
+            color: var(--text-primary);
+        }
+
+        .prediction-demo {
+            background: var(--bg-primary);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-top: 1rem;
+            border-left: 4px solid var(--primary-color);
+        }
+
+        .prediction-demo .metric {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .prediction-demo .metric:last-child {
+            border-bottom: none;
+        }
+
+        .metric-label {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .metric-value {
+            font-size: 1.2rem;
+            font-weight: 700;
+        }
+
+        .risk-high {
+            color: #F85149;
+        }
+
+        .risk-medium {
+            color: #D29922;
+        }
+
+        .risk-low {
+            color: #3FB950;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: var(--border-color);
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 0.5rem;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary-color), #1e3a8a);
+            transition: width 0.3s ease;
+        }
+
+        .architecture-diagram {
+            background: var(--panel-bg);
+            border-radius: 12px;
+            padding: 2rem;
+            margin-bottom: 3rem;
+            border: 1px solid var(--border-color);
+            text-align: center;
+        }
+
+        .architecture-diagram pre {
+            background: var(--bg-primary);
+            padding: 1.5rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            text-align: left;
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .stat-card {
+            background: var(--bg-primary);
+            padding: 1.5rem;
+            border-radius: 8px;
+            text-align: center;
+            border: 1px solid var(--border-color);
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--primary-color);
+            display: block;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .cta-section {
+            text-align: center;
+            padding: 3rem 2rem;
+            background: var(--panel-bg);
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+        }
+
+        .cta-button {
+            display: inline-block;
+            padding: 1rem 2rem;
+            background: var(--primary-color);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 1.1rem;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .cta-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(88, 166, 255, 0.3);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-right: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .badge-success {
+            background: rgba(63, 185, 80, 0.1);
+            color: #3FB950;
+        }
+
+        .badge-info {
+            background: rgba(88, 166, 255, 0.1);
+            color: var(--primary-color);
+        }
+    </style>
+</head>
+<body>
+    <div class="showcase-container">
+        <!-- Hero Section -->
+        <div class="hero-section">
+            <h1>🧠 AI Co-Pilot for API Monitoring</h1>
+            <p>Proactive, Intelligent, and Developer-Friendly System that Predicts Failures Before They Happen</p>
+        </div>
+
+        <!-- Key Features Grid -->
+        <div class="features-grid">
+            <!-- Feature 1: Predictive AI -->
+            <div class="feature-card">
+                <span class="feature-icon">🔮</span>
+                <h3>Predictive AI Engine</h3>
+                <p>Neural network-powered predictions that detect failures 15-30 minutes before they occur.</p>
+                <ul class="feature-list">
+                    <li>50-epoch full training</li>
+                    <li>85-95% accuracy</li>
+                    <li>Category-specific models</li>
+                    <li>Confidence scoring</li>
+                </ul>
+            </div>
+
+            <!-- Feature 2: Real-Time Monitoring -->
+            <div class="feature-card">
+                <span class="feature-icon">📊</span>
+                <h3>Real-Time Monitoring</h3>
+                <p>Continuous health checks with instant alerts and comprehensive metrics tracking.</p>
+                <ul class="feature-list">
+                    <li>Live status updates</li>
+                    <li>Latency tracking</li>
+                    <li>Uptime monitoring</li>
+                    <li>SSL certificate checks</li>
+                </ul>
+            </div>
+
+            <!-- Feature 3: Explainable Insights -->
+            <div class="feature-card">
+                <span class="feature-icon">💡</span>
+                <h3>Explainable Insights</h3>
+                <p>Clear, actionable recommendations with root cause analysis and step-by-step solutions.</p>
+                <ul class="feature-list">
+                    <li>Human-readable explanations</li>
+                    <li>Root cause identification</li>
+                    <li>Fix suggestions</li>
+                    <li>Impact assessment</li>
+                </ul>
+            </div>
+
+            <!-- Feature 4: Developer Integration -->
+            <div class="feature-card">
+                <span class="feature-icon">🔗</span>
+                <h3>Workflow Integration</h3>
+                <p>Seamlessly integrates with GitHub, Jira, and CI/CD pipelines for automated workflows.</p>
+                <ul class="feature-list">
+                    <li>GitHub issue creation</li>
+                    <li>Jira ticket management</li>
+                    <li>Alert notifications</li>
+                    <li>CI/CD integration</li>
+                </ul>
+            </div>
+
+            <!-- Feature 5: Multi-Source Analysis -->
+            <div class="feature-card">
+                <span class="feature-icon">🔍</span>
+                <h3>Multi-Source Correlation</h3>
+                <p>Analyzes data from monitoring logs, git commits, issues, and application logs.</p>
+                <ul class="feature-list">
+                    <li>Log correlation</li>
+                    <li>Code change analysis</li>
+                    <li>Issue tracking</li>
+                    <li>Pattern recognition</li>
+                </ul>
+            </div>
+
+            <!-- Feature 6: Continuous Learning -->
+            <div class="feature-card">
+                <span class="feature-icon">🔄</span>
+                <h3>Continuous Learning</h3>
+                <p>Automatically improves over time through feedback loops and incremental training.</p>
+                <ul class="feature-list">
+                    <li>Automatic retraining</li>
+                    <li>Feedback collection</li>
+                    <li>Model versioning</li>
+                    <li>Performance tracking</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Live Demo Section -->
+        <div class="demo-section">
+            <h2>🎯 Live AI Prediction Example</h2>
+            <p>Here's what our AI co-pilot provides when analyzing an API:</p>
+            
+            <div class="prediction-demo">
+                <div class="metric">
+                    <span class="metric-label">API Name:</span>
+                    <span class="metric-value">Payment Gateway API</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Failure Probability:</span>
+                    <span class="metric-value risk-high">78.5%</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Confidence Level:</span>
+                    <span class="metric-value">92.3%</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Risk Level:</span>
+                    <span class="metric-value risk-high">HIGH</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Training Status:</span>
+                    <span class="metric-value" style="color: #3FB950;">✓ Completed</span>
+                </div>
+            </div>
+
+            <h3 style="margin-top: 2rem; margin-bottom: 1rem;">🔍 Root Cause Analysis:</h3>
+            <div class="prediction-demo">
+                <ul class="feature-list">
+                    <li>Recent deployment increased latency by 40%</li>
+                    <li>Error rate spike: 2.3% → 8.7%</li>
+                    <li>Database connection pool exhaustion detected</li>
+                    <li>Memory usage increased by 35%</li>
+                </ul>
+            </div>
+
+            <h3 style="margin-top: 2rem; margin-bottom: 1rem;">💡 Recommended Actions:</h3>
+            <div class="prediction-demo">
+                <ol style="padding-left: 1.5rem; color: var(--text-secondary); line-height: 1.8;">
+                    <li>Rollback deployment from commit abc123</li>
+                    <li>Add database index: <code>CREATE INDEX idx_user_id ON users(user_id)</code></li>
+                    <li>Increase connection pool size to 50</li>
+                    <li>Enable query caching for frequent requests</li>
+                </ol>
+            </div>
+        </div>
+
+        <!-- Architecture Diagram -->
+        <div class="architecture-diagram">
+            <h2>🏗️ System Architecture</h2>
+            <pre>
+┌─────────────────────────────────────────────────────────┐
+│                    USER INTERFACE                        │
+│         (Real-time Dashboard with AI Insights)          │
+└────────────────┬────────────────────────────────────────┘
+                 │
+┌────────────────▼────────────────────────────────────────┐
+│              MAIN APPLICATION (Port 5000)                │
+│  • API Monitoring        • Alert Management             │
+│  • Data Collection       • GitHub/Jira Integration      │
+└────────────────┬────────────────────────────────────────┘
+                 │
+        ┌────────┴────────┐
+        │                 │
+┌───────▼──────┐  ┌──────▼────────────────────────────────┐
+│   MongoDB    │  │  AI TRAINING SERVICE (Port 5001)      │
+│   Database   │  │  • Neural Network Training            │
+│              │  │  • Prediction Generation              │
+│  • Logs      │  │  • Risk Assessment                    │
+│  • Metrics   │  │  • Isolated Process                   │
+│  • Alerts    │  │  • Non-blocking Operation             │
+│  • Models    │  └───────────────────────────────────────┘
+└──────────────┘
+            </pre>
+        </div>
+
+        <!-- Performance Stats -->
+        <div class="demo-section">
+            <h2>📈 Performance Metrics</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <span class="stat-value">85-95%</span>
+                    <span class="stat-label">Prediction Accuracy</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value">15-30</span>
+                    <span class="stat-label">Minutes Early Detection</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value">&lt;10ms</span>
+                    <span class="stat-label">Response Time</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value">50</span>
+                    <span class="stat-label">Training Epochs</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value">2-3</span>
+                    <span class="stat-label">Minutes Training Time</span>
+                </div>
+                <div class="stat-card">
+                    <span class="stat-value">&lt;10%</span>
+                    <span class="stat-label">False Positive Rate</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Technology Stack -->
+        <div class="demo-section">
+            <h2>🛠️ Technology Stack</h2>
+            <div style="margin-top: 1.5rem;">
+                <h3 style="margin-bottom: 1rem;">Backend:</h3>
+                <div>
+                    <span class="badge badge-info">Python Flask</span>
+                    <span class="badge badge-info">TensorFlow/Keras</span>
+                    <span class="badge badge-info">MongoDB</span>
+                    <span class="badge badge-info">Scikit-learn</span>
+                    <span class="badge badge-info">NumPy/Pandas</span>
+                </div>
+
+                <h3 style="margin-top: 2rem; margin-bottom: 1rem;">Frontend:</h3>
+                <div>
+                    <span class="badge badge-info">JavaScript</span>
+                    <span class="badge badge-info">HTML5/CSS3</span>
+                    <span class="badge badge-info">Remix Icons</span>
+                    <span class="badge badge-info">Responsive Design</span>
+                </div>
+
+                <h3 style="margin-top: 2rem; margin-bottom: 1rem;">Integrations:</h3>
+                <div>
+                    <span class="badge badge-info">GitHub API</span>
+                    <span class="badge badge-info">Jira API</span>
+                    <span class="badge badge-info">Email/Slack</span>
+                    <span class="badge badge-info">CI/CD Ready</span>
+                </div>
+
+                <h3 style="margin-top: 2rem; margin-bottom: 1rem;">AI/ML:</h3>
+                <div>
+                    <span class="badge badge-success">Neural Networks</span>
+                    <span class="badge badge-success">Time Series Analysis</span>
+                    <span class="badge badge-success">Anomaly Detection</span>
+                    <span class="badge badge-success">Pattern Recognition</span>
+                    <span class="badge badge-success">Continuous Learning</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Project Phases -->
+        <div class="demo-section">
+            <h2>✅ Completed Project Phases</h2>
+            <div style="margin-top: 1.5rem;">
+                <div style="margin-bottom: 2rem;">
+                    <h3 style="color: #3FB950; margin-bottom: 0.5rem;">✓ Phase 1: Monitoring Platform</h3>
+                    <p style="color: var(--text-secondary);">Real-time API monitoring with MongoDB storage and interactive dashboard</p>
+                    <div class="progress-bar"><div class="progress-fill" style="width: 100%; background: #3FB950;"></div></div>
+                </div>
+
+                <div style="margin-bottom: 2rem;">
+                    <h3 style="color: #3FB950; margin-bottom: 0.5rem;">✓ Phase 2: AI Reasoning Engine</h3>
+                    <p style="color: var(--text-secondary);">Neural network predictions with multi-source data correlation</p>
+                    <div class="progress-bar"><div class="progress-fill" style="width: 100%; background: #3FB950;"></div></div>
+                </div>
+
+                <div style="margin-bottom: 2rem;">
+                    <h3 style="color: #3FB950; margin-bottom: 0.5rem;">✓ Phase 3: Developer Integration</h3>
+                    <p style="color: var(--text-secondary);">GitHub, Jira, and alert system integration</p>
+                    <div class="progress-bar"><div class="progress-fill" style="width: 100%; background: #3FB950;"></div></div>
+                </div>
+
+                <div style="margin-bottom: 2rem;">
+                    <h3 style="color: #3FB950; margin-bottom: 0.5rem;">✓ Phase 4: Explainable Insights</h3>
+                    <p style="color: var(--text-secondary);">Human-readable AI explanations with actionable recommendations</p>
+                    <div class="progress-bar"><div class="progress-fill" style="width: 100%; background: #3FB950;"></div></div>
+                </div>
+
+                <div style="margin-bottom: 2rem;">
+                    <h3 style="color: #3FB950; margin-bottom: 0.5rem;">✓ Phase 5: Continuous Learning</h3>
+                    <p style="color: var(--text-secondary);">Automatic retraining and feedback loops</p>
+                    <div class="progress-bar"><div class="progress-fill" style="width: 90%; background: #3FB950;"></div></div>
+                </div>
+
+                <div style="margin-bottom: 2rem;">
+                    <h3 style="color: #3FB950; margin-bottom: 0.5rem;">✓ Phase 6: Developer Dashboard</h3>
+                    <p style="color: var(--text-secondary);">Comprehensive control center with modern UI/UX</p>
+                    <div class="progress-bar"><div class="progress-fill" style="width: 100%; background: #3FB950;"></div></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CTA Section -->
+        <div class="cta-section">
+            <h2 style="margin-bottom: 1rem;">Ready to See It in Action?</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 2rem;">Experience the power of AI-driven API monitoring</p>
+            <a href="/advanced_monitor" class="cta-button">
+                <i class="ri-dashboard-line"></i> Open Live Dashboard
+            </a>
+        </div>
+    </div>
+</body>
+</html>

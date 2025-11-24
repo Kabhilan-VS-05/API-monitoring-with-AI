@@ -1,0 +1,1 @@
+{"category": "emergency_alerts", "sequence_length": 20, "n_features": 10, "accuracy": 0.6666666865348816, "auc": 1.0, "trained": true, "last_trained": "2025-11-24T07:47:29.279411"}
