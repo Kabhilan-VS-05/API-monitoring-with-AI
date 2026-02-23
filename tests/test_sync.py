@@ -1,50 +1,54 @@
-"""
-Quick test script to sync GitHub data
-"""
+import os
+import pytest
 import requests
-import json
 
-# Sync GitHub data
-print("Syncing GitHub data...")
-response = requests.post(
-    "http://localhost:5000/api/sync/github",
-    json={
-        "repo_owner": "Kabhilan-VS-05",
-        "repo_name": "API-Monitoring",
-        "since_days": 90
-    }
-)
+BASE_URL = os.getenv("API_MONITOR_BASE_URL", "http://localhost:5000")
+REPO_OWNER = os.getenv("TEST_GITHUB_REPO_OWNER")
+REPO_NAME = os.getenv("TEST_GITHUB_REPO_NAME")
 
-print(f"Status: {response.status_code}")
-print(f"Response: {json.dumps(response.json(), indent=2)}")
 
-# Sync issues
-print("\nSyncing issues...")
-response = requests.post(
-    "http://localhost:5000/api/sync/issues",
-    json={
-        "repo_owner": "Kabhilan-VS-05",
-        "repo_name": "API-Monitoring"
-    }
-)
+def _require_server():
+    try:
+        requests.get(f"{BASE_URL}/monitored_urls", timeout=3)
+    except requests.RequestException:
+        pytest.skip(f"API monitor server not reachable at {BASE_URL}")
 
-print(f"Status: {response.status_code}")
-print(f"Response: {json.dumps(response.json(), indent=2)}")
 
-# View commits
-print("\nFetching commits...")
-response = requests.get("http://localhost:5000/api/commits?hours=720")
-commits = response.json()
-print(f"Found {len(commits)} commits")
-if commits:
-    for commit in commits[:3]:
-        print(f"  - {commit['message'][:50]}... by {commit['author']}")
+def _require_sync_config():
+    if not REPO_OWNER or not REPO_NAME:
+        pytest.skip("Set TEST_GITHUB_REPO_OWNER and TEST_GITHUB_REPO_NAME for sync tests")
 
-# View issues
-print("\nFetching issues...")
-response = requests.get("http://localhost:5000/api/issues")
-issues = response.json()
-print(f"Found {len(issues)} issues")
-if issues:
-    for issue in issues[:3]:
-        print(f"  - #{issue['number']}: {issue['title'][:50]}...")
+
+def test_sync_github_and_issues():
+    _require_server()
+    _require_sync_config()
+
+    response = requests.post(
+        f"{BASE_URL}/api/sync/github",
+        json={"repo_owner": REPO_OWNER, "repo_name": REPO_NAME, "since_days": 30},
+        timeout=30,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload.get("success") is True
+
+    response = requests.post(
+        f"{BASE_URL}/api/sync/issues",
+        json={"repo_owner": REPO_OWNER, "repo_name": REPO_NAME},
+        timeout=30,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload.get("success") is True
+
+
+def test_get_commits_and_issues():
+    _require_server()
+
+    commits_resp = requests.get(f"{BASE_URL}/api/commits?hours=720", timeout=10)
+    issues_resp = requests.get(f"{BASE_URL}/api/issues", timeout=10)
+
+    assert commits_resp.status_code == 200
+    assert issues_resp.status_code == 200
+    assert isinstance(commits_resp.json(), list)
+    assert isinstance(issues_resp.json(), list)

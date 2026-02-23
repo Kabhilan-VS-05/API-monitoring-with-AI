@@ -1,74 +1,54 @@
-"""
-Test script for developer data integration
-Run this after setting GITHUB_TOKEN environment variable
-"""
-
-import requests
-import json
 import os
+import pytest
+import requests
 
-BASE_URL = "http://localhost:5000"
+BASE_URL = os.getenv("API_MONITOR_BASE_URL", "http://localhost:5000")
+TEST_REPO_OWNER = os.getenv("TEST_GITHUB_REPO_OWNER", "example-owner")
+TEST_REPO_NAME = os.getenv("TEST_GITHUB_REPO_NAME", "example-repo")
 
-def test_github_sync():
-    """Test GitHub sync"""
-    print("\n=== Testing GitHub Sync ===")
-    url = f"{BASE_URL}/api/sync/github"
-    data = {
-        "repo_owner": "Kabhilan-VS-05",
-        "repo_name": "API-Monitoring",
-        "since_days": 30
+
+def _require_server():
+    try:
+        requests.get(f"{BASE_URL}/monitored_urls", timeout=3)
+    except requests.RequestException:
+        pytest.skip(f"API monitor server not reachable at {BASE_URL}")
+
+
+def _get_first_monitor_id_or_skip():
+    response = requests.get(f"{BASE_URL}/api/advanced/monitors", timeout=10)
+    assert response.status_code == 200
+    monitors = response.json()
+    if not monitors:
+        pytest.skip("No monitors found. Add at least one monitor to run context test.")
+    return monitors[0]["id"]
+
+
+def test_save_and_get_github_settings():
+    _require_server()
+
+    payload = {
+        "repo_owner": TEST_REPO_OWNER,
+        "repo_name": TEST_REPO_NAME,
     }
-    
-    response = requests.post(url, json=data)
-    print(f"Status: {response.status_code}")
-    print(f"Response: {json.dumps(response.json(), indent=2)}")
-    return response.status_code == 200
+    save_response = requests.post(
+        f"{BASE_URL}/api/github/settings",
+        json=payload,
+        timeout=10,
+    )
+    assert save_response.status_code == 200
+    assert save_response.json().get("success") is True
 
-def test_issue_sync():
-    """Test issue sync"""
-    print("\n=== Testing Issue Sync ===")
-    url = f"{BASE_URL}/api/sync/issues"
-    data = {
-        "repo_owner": "Kabhilan-VS-05",
-        "repo_name": "API-Monitoring"
-    }
-    
-    response = requests.post(url, json=data)
-    print(f"Status: {response.status_code}")
-    print(f"Response: {json.dumps(response.json(), indent=2)}")
-    return response.status_code == 200
+    get_response = requests.get(f"{BASE_URL}/api/github/settings", timeout=10)
+    assert get_response.status_code == 200
+    settings = get_response.json()
+    assert settings.get("repo_owner") == TEST_REPO_OWNER
+    assert settings.get("repo_name") == TEST_REPO_NAME
 
-def test_get_commits():
-    """Test get commits"""
-    print("\n=== Testing Get Commits ===")
-    url = f"{BASE_URL}/api/commits?hours=168"  # Last week
-    
-    response = requests.get(url)
-    print(f"Status: {response.status_code}")
-    commits = response.json()
-    print(f"Found {len(commits)} commits")
-    if commits:
-        print(f"Latest commit: {commits[0].get('message', 'N/A')[:50]}...")
-    return response.status_code == 200
 
-def test_get_issues():
-    """Test get issues"""
-    print("\n=== Testing Get Issues ===")
-    url = f"{BASE_URL}/api/issues"
-    
-    response = requests.get(url)
-    print(f"Status: {response.status_code}")
-    issues = response.json()
-    print(f"Found {len(issues)} issues")
-    if issues:
-        print(f"Latest issue: {issues[0].get('title', 'N/A')[:50]}...")
-    return response.status_code == 200
+def test_create_and_list_incident():
+    _require_server()
 
-def test_create_incident():
-    """Test create incident"""
-    print("\n=== Testing Create Incident ===")
-    url = f"{BASE_URL}/api/incidents"
-    data = {
+    incident_payload = {
         "title": "Test Incident - API Timeout",
         "summary": "Payment API experienced timeout issues",
         "severity": "high",
@@ -79,88 +59,32 @@ def test_create_incident():
         "root_cause": "Database connection pool exhausted",
         "fix_applied": "Increased connection pool size",
         "prevention_steps": "Monitor connection pool usage",
-        "created_by": "Kabhilan"
+        "created_by": "Automated Test",
     }
-    
-    response = requests.post(url, json=data)
-    print(f"Status: {response.status_code}")
-    print(f"Response: {json.dumps(response.json(), indent=2)}")
-    return response.status_code == 200
 
-def test_get_context():
-    """Test get developer context for an API"""
-    print("\n=== Testing Get Context ===")
-    
-    # First, get a monitored API
-    monitors_url = f"{BASE_URL}/api/advanced/monitors"
-    response = requests.get(monitors_url)
-    
-    if response.status_code == 200:
-        monitors = response.json()
-        if monitors:
-            api_id = monitors[0].get("id")
-            print(f"Testing with API ID: {api_id}")
-            
-            context_url = f"{BASE_URL}/api/context/{api_id}"
-            context_response = requests.get(context_url)
-            print(f"Status: {context_response.status_code}")
-            
-            if context_response.status_code == 200:
-                context = context_response.json()
-                print(f"Commits: {len(context.get('commits', []))}")
-                print(f"Issues: {len(context.get('issues', []))}")
-                print(f"Logs: {len(context.get('logs', []))}")
-                print(f"Incidents: {len(context.get('incidents', []))}")
-                print(f"Correlation Score: {context.get('correlation_score', 0)}")
-                return True
-        else:
-            print("No monitors found. Add a monitor first.")
-    
-    return False
+    create_response = requests.post(
+        f"{BASE_URL}/api/incidents",
+        json=incident_payload,
+        timeout=10,
+    )
+    assert create_response.status_code == 200
+    assert create_response.json().get("success") is True
 
-def main():
-    """Run all tests"""
-    print("=" * 60)
-    print("Developer Data Integration - Test Suite")
-    print("=" * 60)
-    
-    # Check if GitHub token is set
-    if not os.getenv("GITHUB_TOKEN"):
-        print("\n⚠️  WARNING: GITHUB_TOKEN environment variable not set!")
-        print("Set it with: set GITHUB_TOKEN=your_token_here")
-        return
-    
-    print(f"\n✅ GitHub token found")
-    print(f"Testing with: Kabhilan-VS-05/API-Monitoring")
-    
-    results = []
-    
-    # Run tests
-    results.append(("GitHub Sync", test_github_sync()))
-    results.append(("Issue Sync", test_issue_sync()))
-    results.append(("Get Commits", test_get_commits()))
-    results.append(("Get Issues", test_get_issues()))
-    results.append(("Create Incident", test_create_incident()))
-    results.append(("Get Context", test_get_context()))
-    
-    # Summary
-    print("\n" + "=" * 60)
-    print("Test Results Summary")
-    print("=" * 60)
-    
-    for test_name, passed in results:
-        status = "✅ PASSED" if passed else "❌ FAILED"
-        print(f"{test_name:20s} {status}")
-    
-    passed_count = sum(1 for _, passed in results if passed)
-    total_count = len(results)
-    
-    print(f"\nTotal: {passed_count}/{total_count} tests passed")
-    
-    if passed_count == total_count:
-        print("\n🎉 All tests passed! Developer data integration is working!")
-    else:
-        print("\n⚠️  Some tests failed. Check the output above for details.")
+    list_response = requests.get(f"{BASE_URL}/api/incidents", timeout=10)
+    assert list_response.status_code == 200
+    assert isinstance(list_response.json(), list)
 
-if __name__ == "__main__":
-    main()
+
+def test_get_context_for_existing_monitor():
+    _require_server()
+    api_id = _get_first_monitor_id_or_skip()
+
+    response = requests.get(f"{BASE_URL}/api/context/{api_id}", timeout=15)
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert "commits" in payload
+    assert "issues" in payload
+    assert "logs" in payload
+    assert "incidents" in payload
+    assert "correlation_score" in payload

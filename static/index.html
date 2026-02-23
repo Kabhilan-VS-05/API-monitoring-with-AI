@@ -1,119 +1,134 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Live API Check | Insight Dashboard</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap"
-      rel="stylesheet"
-    />
-    <link
-      rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/remixicon@2.5.0/fonts/remixicon.css"
-    />
-    <link rel="stylesheet" href="/static/style_pro.css" />
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  </head>
-  <body>
-    <button id="themeToggle" class="theme-toggle" aria-label="Toggle dark mode">
-      <i class="ri-sun-line"></i>
-    </button>
-    
-    <div class="dashboard-grid">
-      <header class="panel panel-header">
-        <div class="header-top">
-          <h1>
-            <i class="ri-radar-line"></i>
-            Live API Check
-          </h1>
-          <a href="/advanced_monitor" class="button-secondary">
-            <i class="ri-cpu-line"></i>
-            <span>Monitor with API Co-pilot AI</span>
-          </a>
-        </div>
-        
-        <section class="input-section">
-          <div class="input-group">
-            <label for="urlInput">API Endpoint URL</label>
-            <input
-              type="url"
-              id="urlInput"
-              placeholder="https://api.example.com/v1/status"
-            />
-          </div>
-          <div class="input-group">
-            <label for="headerNameInput">Header Name (Optional)</label>
-            <input
-              type="text"
-              id="headerNameInput"
-              placeholder="Authorization"
-            />
-          </div>
-          <div class="input-group">
-            <label for="headerValueInput">Header Value (Optional)</label>
-            <input
-              type="text"
-              id="headerValueInput"
-              placeholder="Bearer your_token"
-            />
-          </div>
-          <div class="input-group button-group">
-            <button id="checkButton" class="button-primary">
-              <i class="ri-play-line"></i>
-              <span>Check API</span>
-            </button>
-          </div>
-        </section>
-      </header>
+<html lang="en" data-theme="dark">
 
-      <aside class="panel panel-urls">
-        <h2>Monitored URLs</h2>
-        <div id="urls-list" class="urls-list">
-          <p class="placeholder">No URLs monitored yet.</p>
-        </div>
-        <div id="urls-pagination" class="pagination-controls"></div>
-      </aside>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>API Co-Pilot | Intelligent Monitor</title>
+  <!-- Preconnect for Performance -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <!-- Fonts -->
+  <link
+    href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@2.5.0/fonts/remixicon.css" />
+  <link rel="stylesheet" href="/static/style_pro.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
 
-      <main class="panel panel-main">
-        <div id="result-container">
-          <div id="result" class="result-box">
-            <p class="placeholder">
-              Check an API to see results and performance chart...
-            </p>
+<body>
+
+  <div class="dashboard-grid">
+    <!-- HEADER SECTION -->
+    <header class="panel-header">
+      <div class="header-brand">
+        <h1>API Co-Pilot <span
+            style="font-size: 1rem; vertical-align: super; color: var(--accent); opacity: 0.8;">PRO</span></h1>
+        <div class="subtitle">
+          <i class="ri-radar-fill"></i> Real-time Latency & Health Intelligence
+        </div>
+      </div>
+
+      <div class="control-bar">
+        <div class="input-wrapper">
+          <i class="ri-link"></i>
+          <input type="url" id="urlInput" placeholder="Enter API endpoint URL..." />
+        </div>
+        <div class="input-wrapper opt" style="flex: 0.6;">
+          <i class="ri-key-2-line"></i>
+          <input type="text" id="headerNameInput" placeholder="Header (e.g. Auth)" />
+        </div>
+        <div class="input-wrapper opt" style="flex: 0.6;">
+          <i class="ri-lock-password-line"></i>
+          <input type="text" id="headerValueInput" placeholder="Value" />
+        </div>
+
+        <button id="checkButton" class="btn-scan">
+          <i class="ri-flashlight-fill"></i> <span>SCAN</span>
+        </button>
+
+        <button id="pulseVisionToggle" class="btn-pulse-vision" title="Pulse Vision - Network Topology">
+          <i class="ri-radar-fill"></i>
+        </button>
+
+        <a href="/advanced_monitor" class="btn-advanced" title="Advanced AI Enterprise Dashboard">
+          <i class="ri-shield-user-fill"></i>
+          <span>ADVANCED</span>
+        </a>
+
+        <button id="themeToggle" class="dark-mode-toggle" aria-label="Toggle Theme">
+          <i class="ri-moon-line"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- SIDEBAR -->
+    <aside class="panel panel-sidebar">
+      <div class="panel-title"><i class="ri-broadcast-line"></i> LIVE TARGETS</div>
+      <div id="urls-list" class="urls-list" style="overflow-y: auto; height: 100%;">
+        <!-- Populated by JS -->
+        <p style="color: var(--text-dim); font-size: 0.9rem; font-style: italic; text-align: center; margin-top: 2rem;">
+          No specific targets tracked yet.
+        </p>
+      </div>
+      <div id="urls-pagination" class="pagination-controls"
+        style="margin-top: 1rem; display: flex; justify-content: center; gap: 0.5rem;"></div>
+    </aside>
+
+    <!-- MAIN HUD -->
+    <main class="panel-main">
+      <div id="resultHud" class="hud-result" style="display: none;">
+        <div id="result"></div>
+
+        <div id="moreDetails" class="details-expanded" style="display: none;">
+          <div class="detail-grid-mini">
+            <div class="detail-section">
+              <h3><i class="ri-information-line"></i> Response Details</h3>
+              <div id="detailContent"></div>
+            </div>
+            <div id="certSection" class="detail-section">
+              <h3><i class="ri-shield-keyhole-line"></i> Security & Certificate</h3>
+              <div id="certContent"></div>
+            </div>
           </div>
         </div>
-        <div class="chart-container">
-          <canvas id="latencyChart"></canvas>
-        </div>
-      </main>
 
-      <footer class="panel panel-logs">
-        <h2>API Check Logs</h2>
-        <div id="logs" class="logs-box">
-          <table class="log-table">
-            <thead>
-              <tr>
-                <th>Status</th>
-                <th>URL</th>
-                <th>Code</th>
-                <th>Latency</th>
-                <th>Timestamp</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr class="placeholder">
-                <td colspan="5">No logs yet.</td>
-              </tr>
-            </tbody>
-          </table>
+        <div class="hud-actions">
+          <button id="showMoreBtn" class="btn-show-more">
+            <i class="ri-arrow-down-s-line"></i>
+            <span>SHOW MORE</span>
+          </button>
         </div>
-        <div id="logs-pagination" class="pagination-controls"></div>
-      </footer>
-    </div>
-    
-    <script src="/static/script.js"></script>
-  </body>
+      </div>
+
+      <div class="chart-box">
+        <div class="panel-title"><i class="ri-line-chart-line"></i> Latency Intelligence</div>
+        <canvas id="latencyChart"></canvas>
+      </div>
+    </main>
+
+    <!-- LOGS PANEL -->
+    <section class="panel panel-logs">
+      <div class="panel-title">
+        <i class="ri-terminal-box-line"></i> Real-time Logs
+        <div id="logs-pagination" class="pagination-mini"></div>
+      </div>
+      <div class="log-container">
+        <table style="width: 100%; border-collapse: collapse;">
+          <tbody id="logs-body">
+            <!-- Logs will appear here -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </div> <!-- End Dashboard Grid -->
+
+  <!-- PULSE VISION CANVAS (Background Overlay) -->
+  <canvas id="pulseVisionCanvas"></canvas>
+
+  <script src="/static/script.js"></script>
+</body>
+
 </html>

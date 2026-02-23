@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign In | API Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #091022;
+      --bg-soft: #111f3e;
+      --panel: rgba(11, 20, 40, 0.78);
+      --panel-soft: rgba(15, 28, 56, 0.66);
+      --border: rgba(122, 160, 255, 0.22);
+      --text: #e6efff;
+      --muted: #96a7ca;
+      --primary: #2f82ff;
+      --primary-2: #0ec7a8;
+      --danger: #ff5f79;
+      --ok: #36d399;
+      --shadow: 0 26px 70px rgba(2, 8, 24, 0.58);
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Plus Jakarta Sans", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(920px 520px at 9% -5%, rgba(66, 139, 255, 0.28), transparent 62%),
+        radial-gradient(900px 460px at 88% 108%, rgba(14, 199, 169, 0.24), transparent 58%),
+        linear-gradient(160deg, #050a17 0%, var(--bg) 48%, #0c1932 100%);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 1.25rem;
+      position: relative;
+      overflow-x: hidden;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(161, 193, 255, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(161, 193, 255, 0.05) 1px, transparent 1px);
+      background-size: 38px 38px;
+      mask-image: radial-gradient(circle at center, black 35%, transparent 100%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .wrap {
+      position: relative;
+      z-index: 1;
+      width: min(1180px, 100%);
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 1.1rem;
+      align-items: stretch;
+    }
+
+    .brand {
+      border: 1px solid var(--border);
+      background: linear-gradient(152deg, rgba(13, 24, 49, 0.84) 0%, rgba(17, 32, 63, 0.74) 100%);
+      border-radius: 24px;
+      padding: 2.2rem;
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-height: 640px;
+      backdrop-filter: blur(18px);
+      animation: reveal 500ms ease;
+    }
+
+    .brand-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      width: fit-content;
+      border: 1px solid rgba(58, 122, 255, 0.45);
+      border-radius: 999px;
+      padding: 0.35rem 0.75rem;
+      color: #c9daff;
+      background: rgba(47, 129, 255, 0.16);
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.09em;
+    }
+
+    .brand h1 {
+      margin: 1.25rem 0 0.75rem;
+      font-size: clamp(2rem, 3vw, 3rem);
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+      max-width: 12ch;
+    }
+
+    .brand p {
+      margin: 0;
+      max-width: 48ch;
+      color: var(--muted);
+      line-height: 1.65;
+      font-size: 1rem;
+    }
+
+    .brand-points {
+      margin-top: 1.25rem;
+      display: grid;
+      gap: 0.7rem;
+    }
+
+    .point {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+      font-size: 0.92rem;
+      color: #dce7ff;
+      background: rgba(26, 45, 84, 0.5);
+      border: 1px solid rgba(114, 149, 226, 0.3);
+      border-radius: 10px;
+      padding: 0.6rem 0.8rem;
+    }
+
+    .point i {
+      display: inline-flex;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      align-items: center;
+      justify-content: center;
+      background: rgba(64, 138, 255, 0.25);
+      color: #8dc0ff;
+      font-style: normal;
+      font-size: 0.76rem;
+      font-weight: 700;
+    }
+
+    .mini-metrics {
+      margin-top: 1.7rem;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 0.7rem;
+    }
+
+    .mini-metric {
+      border: 1px solid rgba(108, 147, 231, 0.3);
+      border-radius: 11px;
+      padding: 0.75rem;
+      background: rgba(14, 24, 47, 0.7);
+    }
+
+    .mini-metric strong {
+      display: block;
+      font-size: 1rem;
+      letter-spacing: 0.01em;
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    .mini-metric span {
+      color: var(--muted);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .auth-column {
+      display: grid;
+      gap: 1rem;
+      align-content: start;
+      animation: reveal 620ms ease;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 1.15rem 1.1rem 1.2rem;
+      backdrop-filter: blur(14px);
+      box-shadow: var(--shadow);
+    }
+    h2 {
+      margin: 0 0 0.25rem;
+      font-size: 1.15rem;
+      letter-spacing: -0.01em;
+    }
+    .card-sub {
+      margin: 0 0 0.75rem;
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+    label {
+      display: block;
+      margin: 0.58rem 0 0.24rem;
+      color: var(--muted);
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      font-weight: 700;
+    }
+    input, select {
+      width: 100%;
+      border: 1px solid rgba(110, 148, 231, 0.35);
+      background: var(--panel-soft);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 0.67rem 0.76rem;
+      outline: none;
+      font-family: inherit;
+      transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+    }
+    input::placeholder {
+      color: #8c9bbc;
+    }
+    input:focus,
+    select:focus {
+      border-color: rgba(58, 142, 255, 0.9);
+      box-shadow: 0 0 0 3px rgba(47, 130, 255, 0.16);
+      transform: translateY(-1px);
+    }
+
+    button {
+      width: 100%;
+      margin-top: 0.72rem;
+      border: 0;
+      border-radius: 10px;
+      padding: 0.7rem 0.85rem;
+      color: white;
+      background: linear-gradient(90deg, var(--primary), #3c99ff);
+      cursor: pointer;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      transition: transform 150ms ease, box-shadow 150ms ease, filter 150ms ease;
+      box-shadow: 0 10px 22px rgba(26, 93, 204, 0.4);
+    }
+    button:hover {
+      transform: translateY(-1px);
+      filter: brightness(1.05);
+    }
+    button:active {
+      transform: translateY(0);
+    }
+    #upgradeBtn,
+    #resendBtn,
+    .actions button {
+      background: linear-gradient(90deg, #24375e, #1f335a);
+      box-shadow: none;
+      border: 1px solid rgba(116, 148, 215, 0.4);
+      color: #dce8ff;
+    }
+    .muted {
+      color: var(--muted);
+      font-size: 0.82rem;
+      margin-top: 0.55rem;
+      line-height: 1.45;
+    }
+    .status {
+      margin-top: 0.65rem;
+      font-size: 0.86rem;
+      min-height: 1.3rem;
+      border-radius: 8px;
+      padding: 0.55rem 0.65rem;
+      border: 1px solid transparent;
+      background: rgba(16, 25, 49, 0.55);
+      line-height: 1.5;
+      word-break: break-word;
+    }
+    .status.error {
+      color: #ff8ba0;
+      border-color: rgba(255, 95, 121, 0.36);
+      background: rgba(74, 22, 37, 0.42);
+    }
+    .status.ok {
+      color: #6de1bd;
+      border-color: rgba(72, 214, 171, 0.36);
+      background: rgba(15, 63, 57, 0.35);
+    }
+    .actions {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+    }
+    .actions button {
+      margin: 0;
+      flex: 1;
+    }
+    .actions button.primary {
+      background: linear-gradient(90deg, #296ce0, var(--primary));
+      color: white;
+      border-color: transparent;
+    }
+    .accent {
+      color: #8cc0ff;
+    }
+    @keyframes reveal {
+      from {
+        opacity: 0;
+        transform: translateY(16px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    @media (max-width: 860px) {
+      body {
+        padding: 0.9rem;
+      }
+      .wrap {
+        grid-template-columns: 1fr;
+      }
+      .brand {
+        min-height: auto;
+        padding: 1.2rem;
+      }
+      .mini-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="brand">
+      <div>
+        <span class="brand-badge">Ops Identity Access</span>
+        <h1>Secure Access for Advanced API Monitoring</h1>
+        <p>Sign in to manage private monitors, high-frequency checks, subscription controls, and incident workflows in one place.</p>
+        <div class="brand-points">
+          <div class="point"><i>1</i> Per-user isolated monitoring data</div>
+          <div class="point"><i>2</i> SLO, burn-rate, and root-cause workflows</div>
+          <div class="point"><i>3</i> Subscriber tiers for premium intervals</div>
+        </div>
+      </div>
+      <div class="mini-metrics">
+        <div class="mini-metric"><strong>1s</strong><span>subscriber checks</span></div>
+        <div class="mini-metric"><strong>99.9%</strong><span>slo target ready</span></div>
+        <div class="mini-metric"><strong>Email + GitHub</strong><span>free notifications</span></div>
+      </div>
+    </section>
+
+    <div class="auth-column">
+      <section class="card">
+        <h2>Sign In</h2>
+        <p class="card-sub">Access your private advanced monitoring workspace.</p>
+        <label for="loginEmail">Email</label>
+        <input id="loginEmail" type="email" placeholder="you@example.com" />
+        <label for="loginPassword">Password</label>
+        <input id="loginPassword" type="password" placeholder="At least 8 characters" />
+        <button id="loginBtn">Sign In</button>
+        <div class="actions">
+          <button id="goDashboard" class="primary" type="button">Go Dashboard</button>
+        </div>
+        <div id="loginStatus" class="status"></div>
+      </section>
+
+      <section class="card">
+        <h2>Create Account</h2>
+        <p class="card-sub">New team member? Create your account and verify email.</p>
+        <label for="registerName">Name</label>
+        <input id="registerName" type="text" placeholder="Your name" />
+        <label for="registerEmail">Email</label>
+        <input id="registerEmail" type="email" placeholder="you@example.com" />
+        <label for="registerPassword">Password</label>
+        <input id="registerPassword" type="password" placeholder="At least 8 characters" />
+        <label for="registerPlan">Plan</label>
+        <select id="registerPlan">
+          <option value="free">Free</option>
+          <option value="subscriber">Subscriber</option>
+        </select>
+        <button id="registerBtn">Register</button>
+        <button id="upgradeBtn" type="button">Upgrade Current Account to Subscriber</button>
+        <label for="resendEmail">Resend Verification Email</label>
+        <input id="resendEmail" type="email" placeholder="you@example.com" />
+        <button id="resendBtn" type="button">Resend Verification</button>
+        <div id="registerStatus" class="status"></div>
+        <p class="muted">If SMTP is unavailable, the API returns a local verification URL for development flows.</p>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const loginEmail = document.getElementById('loginEmail');
+    const loginPassword = document.getElementById('loginPassword');
+    const registerName = document.getElementById('registerName');
+    const registerEmail = document.getElementById('registerEmail');
+    const registerPassword = document.getElementById('registerPassword');
+    const registerPlan = document.getElementById('registerPlan');
+    const resendEmail = document.getElementById('resendEmail');
+    const loginStatus = document.getElementById('loginStatus');
+    const registerStatus = document.getElementById('registerStatus');
+
+    function showStatus(el, ok, message) {
+      el.className = `status ${ok ? 'ok' : 'error'}`;
+      el.textContent = message || '';
+    }
+
+    function showStatusWithVerification(el, ok, message, payload) {
+      showStatus(el, ok, message);
+      if (!payload || !payload.verification_url) return;
+
+      const link = document.createElement('a');
+      link.href = payload.verification_url;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.style.color = '#93c5fd';
+      link.textContent = 'Open verification link';
+
+      const wrap = document.createElement('div');
+      wrap.style.marginTop = '0.35rem';
+      wrap.style.wordBreak = 'break-all';
+      wrap.appendChild(link);
+      el.appendChild(wrap);
+    }
+
+    async function requestJson(url, payload) {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload || {}),
+      });
+      let data = {};
+      try { data = await response.json(); } catch (e) {}
+      if (!response.ok) {
+        const err = new Error(data.error || data.message || `Request failed (${response.status})`);
+        err.payload = data;
+        err.status = response.status;
+        throw err;
+      }
+      return data;
+    }
+
+    document.getElementById('loginBtn').addEventListener('click', async () => {
+      showStatus(loginStatus, true, 'Signing in...');
+      try {
+        await requestJson('/auth/login', {
+          email: loginEmail.value.trim(),
+          password: loginPassword.value,
+        });
+        showStatus(loginStatus, true, 'Login successful. Redirecting...');
+        setTimeout(() => { window.location.href = '/advanced_monitor'; }, 450);
+      } catch (err) {
+        if (err.payload && err.payload.requires_verification) {
+          resendEmail.value = loginEmail.value.trim();
+          showStatusWithVerification(loginStatus, false, err.payload.message || err.message, err.payload);
+          return;
+        }
+        showStatus(loginStatus, false, err.message);
+      }
+    });
+
+    document.getElementById('registerBtn').addEventListener('click', async () => {
+      showStatus(registerStatus, true, 'Creating account...');
+      try {
+        const data = await requestJson('/auth/register', {
+          name: registerName.value.trim(),
+          email: registerEmail.value.trim(),
+          password: registerPassword.value,
+          subscription_plan: registerPlan.value,
+        });
+        resendEmail.value = registerEmail.value.trim();
+        const msg = data.requires_verification
+          ? (data.email_sent ? (data.message || 'Registered. Check your email to verify.') : `Registered. Email send failed: ${data.delivery_error || 'unknown'}`)
+          : 'Registered and logged in.';
+        showStatusWithVerification(registerStatus, true, msg, data);
+      } catch (err) {
+        if (err.payload && err.payload.requires_verification) {
+          resendEmail.value = registerEmail.value.trim();
+          showStatusWithVerification(registerStatus, true, err.payload.message || err.message, err.payload);
+          return;
+        }
+        showStatus(registerStatus, false, err.message);
+      }
+    });
+
+    document.getElementById('resendBtn').addEventListener('click', async () => {
+      showStatus(registerStatus, true, 'Sending verification email...');
+      try {
+        const data = await requestJson('/auth/resend-verification', {
+          email: resendEmail.value.trim(),
+        });
+        showStatusWithVerification(registerStatus, true, data.message || 'Verification email sent.', data);
+      } catch (err) {
+        if (err.payload && err.payload.requires_verification) {
+          showStatusWithVerification(registerStatus, true, err.payload.message || err.message, err.payload);
+          return;
+        }
+        showStatus(registerStatus, false, err.message);
+      }
+    });
+
+    document.getElementById('upgradeBtn').addEventListener('click', async () => {
+      showStatus(registerStatus, true, 'Updating subscription...');
+      try {
+        await requestJson('/auth/subscription', { plan: 'subscriber' });
+        showStatus(registerStatus, true, 'Subscription updated: Subscriber');
+      } catch (err) {
+        showStatus(registerStatus, false, err.message);
+      }
+    });
+
+    document.getElementById('goDashboard').addEventListener('click', () => {
+      window.location.href = '/advanced_monitor';
+    });
+  </script>
+</body>
+</html>

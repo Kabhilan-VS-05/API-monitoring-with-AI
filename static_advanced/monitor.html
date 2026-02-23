@@ -1,485 +1,332 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🏥 Community Guardian | Healthcare API Monitor</title>
+    <title>NexGen API Monitor | Enterprise Intelligence Dashboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css">
     <link rel="stylesheet" href="/static_advanced/monitor.css">
+    <link rel="stylesheet" href="/static_advanced/premium.css">
 </head>
-<body>
-    <button id="themeToggleBtn" class="theme-toggle" aria-label="Toggle dark mode">
-        <i class="ri-sun-line"></i>
-    </button>
 
-    <div class="dashboard-grid">
-        <header class="panel panel-header">
-            <div class="header-top">
-                <h1>
-                    <i class="ri-hospital-line"></i>
-                    Community Guardian
-                    <span class="subtitle">Healthcare & Emergency API Monitor</span>
-                </h1>
+<body data-theme="dark">
+
+    <div class="container">
+        <div id="mainView">
+            <header class="main-header">
+                <div class="logo-group">
+                    <i class="ri-pulse-fill logo-icon"></i>
+                    <h1>NEXGEN <span class="logo-thin">MONITOR</span></h1>
+                </div>
                 <div class="header-actions">
-                    <button id="warRoomBtn" class="button-emergency">
-                        <i class="ri-emergency-line"></i>
-                        <span>War Room</span>
-                    </button>
-                    <a href="/" class="button-secondary">
-                        <i class="ri-dashboard-line"></i>
-                        <span>Simple Monitor</span>
-                    </a>
+                    <button id="themeToggleBtn" class="button-icon" title="Toggle Theme"
+                        aria-label="Toggle theme"></button>
+                    <a id="authBtn" href="/auth" class="button-secondary"><i class="ri-shield-user-line"
+                            aria-hidden="true"></i> Sign In</a>
+                    <button id="settingsBtn" class="button-secondary"><i class="ri-settings-3-line"
+                            aria-hidden="true"></i> Settings</button>
+                    <button id="communityPanelBtn" class="button-secondary"><i class="ri-megaphone-line"
+                            aria-hidden="true"></i> Community Communication</button>
+                    <a href="/" class="button-secondary">Live API Check</a>
+                    <button id="addApiBtn" class="button-primary">Add New Monitor</button>
+                </div>
+
+                <div id="communityPanel" class="community-panel hidden">
+                    <div class="panel-header">
+                        <div>
+                            <h2><i class="ri-megaphone-line" aria-hidden="true"></i> Community Communication</h2>
+                            <p>Manage contacts, languages, notifications, and activity logs for rural field workers.</p>
+                        </div>
+                        <button id="closeCommunityPanel" class="button-icon" type="button"
+                            title="Close Community Communication panel"
+                            aria-label="Close Community Communication panel"><i class="ri-close-line"
+                                aria-hidden="true"></i></button>
+                    </div>
+                    <div class="panel-content">
+                        <section class="panel-section">
+                            <div class="section-header">
+                                <h3>Contact Groups</h3>
+                                <button id="addContactBtn" class="button-secondary">Add Contact</button>
+                            </div>
+                            <form id="contactForm" class="contact-form">
+                                <input type="text" id="contactName" placeholder="Name" required>
+                                <input type="tel" id="contactPhone" placeholder="Phone" required>
+                                <select id="contactChannel" required>
+                                    <option value="WhatsApp">WhatsApp</option>
+                                    <option value="SMS">SMS</option>
+                                    <option value="IVR">IVR</option>
+                                </select>
+                                <select id="contactLanguage">
+                                    <option value="EN">English</option>
+                                    <option value="TA">Tamil</option>
+                                    <option value="HI">Hindi</option>
+                                </select>
+                                <input type="text" id="contactGroups" placeholder="Subscribed APIs (comma separated)">
+                                <button type="submit" class="button-primary">Save Contact</button>
+                            </form>
+                            <div class="contact-table-wrapper">
+                                <table class="contact-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>Phone</th>
+                                            <th>Channel</th>
+                                            <th>Language</th>
+                                            <th>APIs</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="contactTableBody"></tbody>
+                                </table>
+                            </div>
+                        </section>
+
+                        <section class="panel-section">
+                            <h3>Language Settings</h3>
+                            <div class="language-options">
+                                <label><input type="radio" name="preferredLanguage" value="EN"> English</label>
+                                <label><input type="radio" name="preferredLanguage" value="TA"> Tamil</label>
+                                <label><input type="radio" name="preferredLanguage" value="HI"> Hindi</label>
+                            </div>
+                            <div class="translation-tool">
+                                <h4>Translate Sample Message</h4>
+                                <textarea id="translateMessage" rows="3" placeholder="Enter alert text..."></textarea>
+                                <div class="translation-actions">
+                                    <button data-lang="EN" class="button-secondary translation-btn">English</button>
+                                    <button data-lang="TA" class="button-secondary translation-btn">தமிழ்</button>
+                                    <button data-lang="HI" class="button-secondary translation-btn">हिंदी</button>
+                                    <button id="translateClear" class="button-icon" type="button"
+                                        title="Clear translation output" aria-label="Clear translation output"><i
+                                            class="ri-refresh-line" aria-hidden="true"></i></button>
+                                </div>
+                                <div class="translation-output" id="translationOutput">Translation will appear here.
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="panel-section grid-2col">
+                            <div>
+                                <h3>Notification Preferences</h3>
+                                <div class="preferences">
+                                    <label><input type="checkbox" id="prefWhatsApp" checked> WhatsApp Alerts</label>
+                                    <label><input type="checkbox" id="prefSMS" checked> SMS Alerts</label>
+                                    <label><input type="checkbox" id="prefIVR" checked> IVR Calls</label>
+                                </div>
+                                <div class="preferences">
+                                    <label><input type="checkbox" id="prefDowntime" checked> Downtime Alerts</label>
+                                    <label><input type="checkbox" id="prefAIPredict" checked> AI Prediction
+                                        Alerts</label>
+                                    <label><input type="checkbox" id="prefRecovery" checked> Recovery Alerts</label>
+                                </div>
+                            </div>
+                            <div class="test-alert">
+                                <h3>Test Alert Delivery</h3>
+                                <label for="testAlertApi" class="sr-only">Select API to send a test alert</label>
+                                <select id="testAlertApi" aria-label="Select API for test alert"></select>
+                                <select id="testAlertChannel">
+                                    <option value="whatsapp">WhatsApp</option>
+                                    <option value="sms">SMS</option>
+                                    <option value="ivr">IVR</option>
+                                </select>
+                                <textarea id="testAlertMessage" rows="2" placeholder="Custom test message"></textarea>
+                                <button id="sendTestAlert" class="button-primary">Send Test Alert</button>
+                                <div id="testAlertStatus" class="notification-status"></div>
+                            </div>
+                        </section>
+
+                        <section class="panel-section">
+                            <h3>Community Notification Activity</h3>
+                            <div id="notificationTimeline" class="timeline"></div>
+                            <button id="refreshTimeline" class="button-secondary">Refresh Timeline</button>
+                        </section>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Developer Data Integration Panel -->
+            <div id="devDataPanel" class="dev-data-panel hidden">
+                <div class="panel-header">
+                    <h2><i class="ri-links-line"></i> Developer Data Integration</h2>
+                    <button id="closeDevPanel" class="button-icon"><i class="ri-close-line"></i></button>
+                </div>
+                <div class="panel-content">
+                    <div class="panel-section">
+                        <h3><i class="ri-github-fill"></i> GitHub Sync</h3>
+                        <div class="sync-form">
+                            <input type="text" id="repoOwner" placeholder="Repository Owner (e.g., username)">
+                            <input type="text" id="repoName" placeholder="Repository Name (e.g., my-repo)">
+                            <input type="password" id="githubToken"
+                                placeholder="GitHub Personal Access Token (optional)">
+                            <small>
+                                <i class="ri-lightbulb-line"></i> <a href="#" id="tokenHelpLink">How to get GitHub
+                                    token?</a>
+                            </small>
+                            <input type="number" id="sinceDays" placeholder="Days to fetch" value="90" min="1"
+                                max="365">
+                            <button id="syncGithubBtn" class="button-primary"><i class="ri-refresh-line"></i> Sync
+                                GitHub Data</button>
+                            <button id="exportDatasetBtn" class="button-secondary"><i class="ri-upload-line"></i> Export
+                                Dataset to GitHub</button>
+                        </div>
+                        <div id="syncStatus" class="sync-status"></div>
+                        <div id="exportStatus" class="sync-status"></div>
+                    </div>
+
+                    <div class="panel-section">
+
+                        <h3><i class="ri-brain-line"></i> Automatic Alert Systems</h3>
+                        <div style="background: #161B22; padding: 1rem; border-radius: 6px; margin-bottom: 1rem;">
+                            <div style="margin-bottom: 0.75rem;">
+                                <strong style="color: #58A6FF;">System 1: Immediate Downtime/Recovery</strong>
+                                <p style="margin: 0.25rem 0 0 0; font-size: 0.875rem; color: #8B949E;">
+                                    <i class="ri-checkbox-circle-line"></i> Automatically alerts when API goes down<br>
+                                    <i class="ri-checkbox-circle-line"></i> Automatically alerts when API recovers<br>
+                                    <i class="ri-checkbox-circle-line"></i> Creates GitHub issues with full details
+                                </p>
+                            </div>
+                            <div>
+                                <strong style="color: #58A6FF;">System 2: AI Predictive (Every 20 mins)</strong>
+                                <p style="margin: 0.25rem 0 0 0; font-size: 0.875rem; color: #8B949E;">
+                                    <i class="ri-brain-line"></i> Trains AI model every 20 minutes<br>
+                                    <i class="ri-brain-line"></i> Predicts failure probability<br>
+                                    <i class="ri-brain-line"></i> Alerts if >70% failure risk detected
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="panel-section">
+                        <h3><i class="ri-bar-chart-line"></i> Data Summary</h3>
+                        <div class="data-summary">
+                            <div class="summary-card">
+                                <span class="summary-label">Commits</span>
+                                <span id="commitCount" class="summary-value">-</span>
+                            </div>
+                            <div class="summary-card">
+                                <span class="summary-label">Issues</span>
+                                <span id="issueCount" class="summary-value">-</span>
+                            </div>
+                            <div class="summary-card">
+                                <span class="summary-label">Incidents</span>
+                                <span id="incidentCount" class="summary-value">-</span>
+                            </div>
+                            <div class="summary-card">
+                                <span class="summary-label">Error Logs</span>
+                                <span id="logCount" class="summary-value">-</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="panel-section">
+                        <h3><i class="ri-git-commit-line"></i> Recent Commits</h3>
+                        <div id="commitsList" class="data-list">
+                            <p class="placeholder">No commits synced yet.</p>
+                        </div>
+                    </div>
+
+
+                    <div class="sync-section">
+                        <h3>🐛 Open Issues</h3>
+                        <div id="issuesList" class="data-list">
+                            <p class="no-data">No issues synced yet.</p>
+                        </div>
+                    </div>
+
+                    <div class="sync-section">
+                        <h3>🚨 Recent Incidents</h3>
+                        <div id="incidentsList" class="data-list">
+                            <p class="no-data">No incidents created yet.</p>
+                        </div>
+                    </div>
+
+                    <div class="sync-section">
+                        <h3>🚨 Create Incident Report</h3>
+                        <div class="incident-form">
+                            <input type="text" id="incidentTitle" placeholder="Incident Title">
+                            <textarea id="incidentSummary" placeholder="Summary" rows="3"></textarea>
+                            <select id="incidentSeverity">
+                                <option value="low">Low</option>
+                                <option value="medium" selected>Medium</option>
+                                <option value="high">High</option>
+                                <option value="critical">Critical</option>
+                            </select>
+                            <input type="text" id="incidentRootCause" placeholder="Root Cause">
+                            <input type="text" id="incidentFix" placeholder="Fix Applied">
+                            <button id="createIncidentBtn" class="button-primary">Create Incident</button>
+                        </div>
+                    </div>
                 </div>
             </div>
-            
-            <section class="stats-section">
-                <div class="stat-card critical">
-                    <div class="stat-icon">🚨</div>
-                    <div class="stat-info">
-                        <div class="stat-value" id="criticalCount">0</div>
-                        <div class="stat-label">Critical APIs</div>
+            <section id="developerOverview" class="dev-overview-container hidden">
+                <div class="dev-overview-card">
+                    <div class="dev-overview-header">
+                        <h3><i class="ri-github-line"></i> Synced Repository Summary</h3>
+                        <span id="repoSlug" class="repo-slug">repo/slug</span>
                     </div>
-                </div>
-                <div class="stat-card high">
-                    <div class="stat-icon">⚕️</div>
-                    <div class="stat-info">
-                        <div class="stat-value" id="highCount">0</div>
-                        <div class="stat-label">High Priority</div>
-                    </div>
-                </div>
-                <div class="stat-card success">
-                    <div class="stat-icon">✅</div>
-                    <div class="stat-info">
-                        <div class="stat-value" id="uptimePercent">0%</div>
-                        <div class="stat-label">System Uptime</div>
-                    </div>
-                </div>
-                <div class="stat-card warning">
-                    <div class="stat-icon">⚠️</div>
-                    <div class="stat-info">
-                        <div class="stat-value" id="activeIncidentsCount">0</div>
-                        <div class="stat-label">Active Incidents</div>
+                    <div class="dev-stats-inline">
+                        <div class="dev-stat">
+                            <i class="ri-git-commit-line"></i> <span id="overviewCommits">0</span> Commits
+                        </div>
+                        <div class="dev-stat">
+                            <i class="ri-issue-line"></i> <span id="overviewIssues">0</span> Issues
+                        </div>
+                        <div class="dev-stat">
+                            <i class="ri-alert-line"></i> <span id="overviewLog">0</span> Logs
+                        </div>
                     </div>
                 </div>
             </section>
-        </header>
 
-        <main class="panel panel-main" id="mainView">
-            <div class="panel-header">
-                <h2>
-                    <i class="ri-pulse-line"></i>
-                    Healthcare API Monitoring
-                </h2>
-                <div class="panel-actions">
-                    <button id="warRoomBtn" class="button-secondary">
-                        <i class="ri-flag-line"></i>
-                        <span>War Room</span>
-                    </button>
-                    <button id="settingsBtn" class="button-secondary">
-                        <i class="ri-settings-3-line"></i>
-                        <span>Settings</span>
-                    </button>
-                    <button id="addApiBtn" class="button-primary">
-                        <i class="ri-add-line"></i>
-                        <span>Add Healthcare API</span>
-                    </button>
-                </div>
+            <section id="sloSummary" class="slo-summary">
+                <div class="summary-tile"><i class="ri-radar-line"></i><small>Total Monitors</small><strong
+                        id="sloTotalMonitors">-</strong></div>
+                <div class="summary-tile"><i class="ri-heart-pulse-line"></i><small>Avg Uptime (24h)</small><strong
+                        id="sloAvgUptime">-</strong></div>
+                <div class="summary-tile"><i class="ri-pie-chart-line"></i><small>Error Budget Left</small><strong
+                        id="sloAvgBudget">-</strong></div>
+                <div class="summary-tile"><i class="ri-fire-line"></i><small>Burn Alerts</small><strong
+                        id="sloBurnAlerts">-</strong></div>
+            </section>
+
+            <div id="monitorList" class="monitor-grid-container">
+                <p class="placeholder">Loading monitors...</p>
             </div>
-            
-            <div class="monitor-list" id="monitorList">
-                <!-- Monitor cards will be populated here -->
-            </div>
-        </main> <!-- End of mainView -->
+        </div>
 
-        <aside class="panel panel-sidebar">
-            <div class="panel-header">
-                <h3>
-                    <i class="ri-notification-3-line"></i>
-                    Activity Timeline
-                </h3>
-                <button id="refreshTimeline" class="button-icon">
-                    <i class="ri-refresh-line"></i>
-                </button>
-            </div>
-            
-            <div class="timeline-container">
-                <div id="activityTimeline" class="activity-timeline">
-                    <!-- Timeline items will be populated here -->
-                </div>
-            </div>
-        </aside>
-    </div>
-
-    <!-- Settings Panel -->
-    <div id="settingsPanel" class="modal hidden">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2><i class="ri-settings-3-line"></i> Guardian Settings</h2>
-                <button id="closeSettingsPanel" class="button-icon">
-                    <i class="ri-close-line"></i>
-                </button>
-            </div>
-            <div class="modal-body">
-                
-                <!-- Healthcare API Categories -->
-                <section class="settings-section">
-                    <h3><i class="ri-hospital-line"></i> Healthcare API Categories</h3>
-                    <div class="category-grid">
-                        <div class="category-card critical">
-                            <h4>🚨 Critical Priority</h4>
-                            <p>Emergency Dispatch, Life Support, Emergency Alerts</p>
-                            <span class="impact-badge">Impact: 90-100</span>
-                        </div>
-                        <div class="category-card high">
-                            <h4>⚕️ High Priority</h4>
-                            <p>Hospital Operations, Telemedicine, Vaccination</p>
-                            <span class="impact-badge">Impact: 70-89</span>
-                        </div>
-                        <div class="category-card medium">
-                            <h4>📋 Support Services</h4>
-                            <p>Health Records, Supply Chain, Public Health</p>
-                            <span class="impact-badge">Impact: 50-69</span>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Emergency Contacts -->
-                <section class="settings-section">
-                    <div class="section-header">
-                        <h3><i class="ri-phone-line"></i> Emergency Response Contacts</h3>
-                        <button id="addContactBtn" class="button-secondary">Add Contact</button>
-                    </div>
-                    <form id="contactForm" class="contact-form">
-                        <div class="form-grid">
-                            <input type="text" id="contactName" placeholder="Contact Name" required>
-                            <input type="tel" id="contactPhone" placeholder="Phone Number">
-                            <input type="email" id="contactEmail" placeholder="Email Address">
-                            <select id="contactRole">
-                                <option value="emergency_coordinator">Emergency Coordinator</option>
-                                <option value="hospital_admin">Hospital Administrator</option>
-                                <option value="it_support">IT Support</option>
-                                <option value="ngo_staff">NGO Staff</option>
-                                <option value="health_worker">Health Worker</option>
-                            </select>
-                            <select id="contactLanguage">
-                                <option value="EN">English</option>
-                                <option value="TA">Tamil</option>
-                                <option value="HI">Hindi</option>
-                                <option value="ES">Spanish</option>
-                                <option value="FR">French</option>
-                            </select>
-                        </div>
-                        <div class="api-selection">
-                            <label>Select APIs to monitor for this contact:</label>
-                            <div id="apiCheckboxes" class="api-checkboxes">
-                                <!-- API checkboxes will be populated here -->
-                            </div>
-                        </div>
-                        <div class="alert-preferences">
-                            <label>
-                                <input type="checkbox" id="smsAlerts" checked>
-                                <span>SMS Alerts</span>
-                            </label>
-                            <label>
-                                <input type="checkbox" id="whatsappAlerts" checked>
-                                <span>WhatsApp Alerts</span>
-                            </label>
-                            <label>
-                                <input type="checkbox" id="ivrAlerts">
-                                <span>IVR Voice Calls</span>
-                            </label>
-                        </div>
-                        <button type="submit" class="button-primary">Save Emergency Contact</button>
-                    </form>
-                    <div class="contact-list">
-                        <table class="contact-table">
-                            <thead>
-                                <tr><th>Name</th><th>Role</th><th>Phone</th><th>Email</th><th>APIs</th><th>Alerts</th><th></th></tr>
-                            </thead>
-                            <tbody id="contactTableBody"></tbody>
-                        </table>
-                    </div>
-                </section>
-
-                <!-- Alert Channels -->
-                <section class="settings-section">
-                    <h3><i class="ri-notification-3-line"></i> Emergency Alert Channels</h3>
-                    <div class="alert-channels">
-                        <div class="channel-config">
-                            <label>
-                                <input type="checkbox" id="enableSmsAlerts" checked>
-                                <span>SMS Alerts (Twilio)</span>
-                            </label>
-                            <input type="tel" id="emergencySmsNumber" placeholder="+1234567890">
-                        </div>
-                        <div class="channel-config">
-                            <label>
-                                <input type="checkbox" id="enableWhatsappAlerts">
-                                <span>WhatsApp Business</span>
-                            </label>
-                            <input type="tel" id="whatsappNumber" placeholder="+1234567890">
-                        </div>
-                        <div class="channel-config">
-                            <label>
-                                <input type="checkbox" id="enableIvrAlerts">
-                                <span>IVR Voice Calls</span>
-                            </label>
-                            <input type="tel" id="ivrNumber" placeholder="+1234567890">
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Impact-Based Prioritization -->
-                <section class="settings-section">
-                    <h3><i class="ri-priority-line"></i> Impact-Based Prioritization</h3>
-                    <div class="impact-settings">
-                        <div class="impact-threshold">
-                            <label>Critical Alert Threshold:</label>
-                            <input type="range" id="criticalThreshold" min="70" max="100" value="90">
-                            <span id="criticalThresholdValue">90</span>
-                        </div>
-                        <div class="impact-threshold">
-                            <label>High Priority Threshold:</label>
-                            <input type="range" id="highThreshold" min="50" max="90" value="75">
-                            <span id="highThresholdValue">75</span>
-                        </div>
-                        <div class="auto-escalation">
-                            <label>
-                                <input type="checkbox" id="autoEscalation" checked>
-                                <span>Auto-escalate critical incidents after 5 minutes</span>
-                            </label>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Language Settings Section -->
-                <section class="panel-section">
-                    <h3><i class="ri-translate-2" aria-hidden="true"></i> Language Settings</h3>
-                    <div class="language-options">
-                        <label><input type="radio" name="preferredLanguage" value="EN"> English</label>
-                        <label><input type="radio" name="preferredLanguage" value="TA"> Tamil</label>
-                        <label><input type="radio" name="preferredLanguage" value="HI"> Hindi</label>
-                    </div>
-                    <div class="translation-tool">
-                        <h4>Translate Sample Message</h4>
-                        <textarea id="translateMessage" rows="3" placeholder="Enter alert text..."></textarea>
-                        <div class="translation-actions">
-                            <button data-lang="EN" class="button-secondary translation-btn">English</button>
-                            <button data-lang="TA" class="button-secondary translation-btn">தமிழ்</button>
-                            <button data-lang="HI" class="button-secondary translation-btn">हिंदी</button>
-                            <button id="translateClear" class="button-icon" type="button" title="Clear translation output" aria-label="Clear translation output"><i class="ri-refresh-line" aria-hidden="true"></i></button>
-                        </div>
-                        <div class="translation-output" id="translationOutput">Translation will appear here.</div>
-                    </div>
-                </section>
-
-                <!-- Notification Activity Section -->
-                <section class="panel-section">
-                    <h3><i class="ri-time-line" aria-hidden="true"></i> Notification Activity</h3>
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                        <span style="font-size: 0.875rem; color: #8B949E;">Recent email responses and alert deliveries</span>
-                        <div style="display: flex; gap: 0.5rem;">
-                            <button id="viewTrainingHistory" class="button-secondary"><i class="ri-history-line"></i> AI Training</button>
-                            <button id="refreshTimeline" class="button-secondary"><i class="ri-refresh-line"></i> Refresh</button>
-                        </div>
-                    </div>
-                    <div id="notificationTimeline" class="notification-timeline">
-                        <p class="placeholder">Loading activity timeline...</p>
-                    </div>
-                </section>
-            </div>
+        <div id="detailsView" class="hidden">
         </div>
     </div>
 
-    <!-- War Room Modal -->
-    <div id="warRoomModal" class="modal hidden">
-        <div class="modal-content war-room">
-            <div class="modal-header">
-                <h2>🏛️ Emergency War Room</h2>
-                <button id="closeWarRoom" class="button-icon">
-                    <i class="ri-close-line"></i>
-                </button>
-            </div>
-            <div class="war-room-content">
-                <aside class="war-room-sidebar">
-                    <div class="war-room-hero">
-                        <p class="hero-subtitle">Live coordination hub</p>
-                        <h3>Coordinated Response Status</h3>
-                        <div class="hero-metrics">
-                            <div class="hero-metric">
-                                <span class="metric-label">Critical</span>
-                                <span class="metric-value" id="heroCriticalCount">0</span>
-                            </div>
-                            <div class="hero-metric">
-                                <span class="metric-label">Average Response</span>
-                                <span class="metric-value" id="heroResponseEta">--</span>
-                            </div>
-                            <div class="hero-metric">
-                                <span class="metric-label">Stability</span>
-                                <span class="metric-value" id="heroStability">--</span>
-                            </div>
-                        </div>
-                        <div class="hero-actions">
-                            <button class="button-primary ghost" type="button">Trigger Broadcast</button>
-                            <button class="button-secondary" type="button">Assign Task Force</button>
-                        </div>
-                    </div>
-                    <div class="incident-list card">
-                        <div class="section-heading">
-                            <div>
-                                <h3>🚨 Active Incidents</h3>
-                                <p>Prioritized by impact score</p>
-                            </div>
-                            <span class="badge" id="warRoomIncidentBadge">0 live</span>
-                        </div>
-                        <div id="warRoomIncidents" class="incident-scroll"></div>
-                    </div>
-                    <div class="team-chat card">
-                        <div class="section-heading">
-                            <div>
-                                <h3>💬 Field Coordination</h3>
-                                <p>Stay aligned with incident leads</p>
-                            </div>
-                            <div class="chat-presence">
-                                <span class="presence-dot"></span> 6 responders online
-                            </div>
-                        </div>
-                        <div id="chatMessages"></div>
-                        <div class="chat-input">
-                            <input type="text" id="chatInput" placeholder="Type message...">
-                            <button id="sendMessage">Send</button>
-                        </div>
-                    </div>
-                    <div class="playbook-card card">
-                        <h3>🧰 Response Playbooks</h3>
-                        <ul>
-                            <li><span>Restart edge nodes</span><button class="button-link">Run</button></li>
-                            <li><span>Escalate to regional lead</span><button class="button-link">Notify</button></li>
-                            <li><span>Activate field volunteers</span><button class="button-link">Deploy</button></li>
-                        </ul>
-                    </div>
-                </aside>
-                <section class="war-room-main">
-                    <div class="war-room-grid">
-                        <div class="war-room-card incident-details">
-                            <div class="section-heading">
-                                <h3>📊 Incident Analysis</h3>
-                                <button class="button-icon" type="button" title="Refresh analysis"><i class="ri-refresh-line"></i></button>
-                            </div>
-                            <div id="incidentAnalysis" class="card-body"></div>
-                        </div>
-                        <div class="war-room-card what-if-simulator">
-                            <div class="section-heading">
-                                <h3>🎯 What-If Simulator</h3>
-                                <span class="badge ghost">AI Assisted</span>
-                            </div>
-                            <div id="simulatorControls"></div>
-                            <div id="simulatorResults"></div>
-                        </div>
-                        <div class="war-room-card impact-map">
-                            <div class="section-heading">
-                                <h3>🗺️ Impact Visualization</h3>
-                                <button class="button-link" type="button">Export Map</button>
-                            </div>
-                            <div id="impactMap"></div>
-                        </div>
-                        <div class="war-room-card response-timeline">
-                            <div class="section-heading">
-                                <h3>📍 Response Timeline</h3>
-                                <button class="button-link" type="button">View full log</button>
-                            </div>
-                            <div id="warRoomTimeline" class="timeline-list"></div>
-                        </div>
-                        <div class="war-room-card escalation-panel">
-                            <div class="section-heading">
-                                <h3>⚡ Rapid Actions</h3>
-                                <span class="badge">Live</span>
-                            </div>
-                            <div class="action-grid">
-                                <button class="action-chip">Open Bridge</button>
-                                <button class="action-chip">Ping SRE</button>
-                                <button class="action-chip">Notify Hospitals</button>
-                                <button class="action-chip">Sync Logistics</button>
-                            </div>
-                            <p class="panel-note">Actions log automatically into the incident record for audit.</p>
-                        </div>
-                    </div>
-                </section>
-            </div>
-        </div>
-    </div>
-
-    <!-- Add/Edit API Modal -->
-    <div id="addApiModal" class="modal hidden">
+    <div id="addApiModal" class="modal-overlay hidden">
         <div class="modal-content">
-            <div class="modal-header">
-                <h2 id="modalTitle">Add Healthcare API Monitor</h2>
-                <button id="modalCloseBtn" class="button-icon">
-                    <i class="ri-close-line"></i>
-                </button>
-            </div>
+            <h2 id="modalTitle">Add New API to Monitor</h2>
             <form id="addApiForm">
                 <input type="hidden" id="apiEditId">
-                <div class="form-group">
-                    <label for="apiName">API Name *</label>
-                    <input type="text" id="apiName" required placeholder="e.g., City Ambulance Dispatch">
-                </div>
-                <div class="form-group">
-                    <label for="apiUrl">API URL *</label>
-                    <input type="url" id="apiUrl" required placeholder="https://api.emergency.gov/ambulance/status">
-                </div>
-                <div class="form-group">
-                    <label for="apiCategory">Healthcare Category *</label>
-                    <select id="apiCategory" required>
-                        <option value="">Select Category</option>
-                        <optgroup label="🚨 Critical Priority">
-                            <option value="emergency_dispatch">Emergency Dispatch</option>
-                            <option value="life_support">Life Support Systems</option>
-                            <option value="emergency_alerts">Emergency Alerts</option>
-                        </optgroup>
-                        <optgroup label="⚕️ High Priority">
-                            <option value="hospital_operations">Hospital Operations</option>
-                            <option value="telemedicine">Telemedicine Services</option>
-                            <option value="vaccination">Vaccination Services</option>
-                        </optgroup>
-                        <optgroup label="📋 Support Services">
-                            <option value="health_records">Health Records</option>
-                            <option value="supply_chain">Medical Supply Chain</option>
-                            <option value="public_health">Public Health Data</option>
-                        </optgroup>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="apiPriority">Priority Level *</label>
-                    <select id="apiPriority" required>
-                        <option value="">Select Priority</option>
-                        <option value="critical">🚨 Critical - Life-saving systems</option>
-                        <option value="high">⚕️ High - Essential healthcare services</option>
-                        <option value="medium">📋 Medium - Support services</option>
-                        <option value="low">📊 Low - Analytics and reporting</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="apiImpactScore">Community Impact Score (0-100)</label>
-                    <input type="number" id="apiImpactScore" min="0" max="100" placeholder="85">
-                    <small>Higher score = greater impact on community if API fails</small>
-                </div>
-                <div class="form-group">
-                    <label for="apiEmergencyContact">Emergency Contact</label>
-                    <input type="text" id="apiEmergencyContact" placeholder="dispatch@city.gov">
-                </div>
-                <div class="form-group">
-                    <label for="apiFallbackUrl">Fallback URL (Optional)</label>
-                    <input type="url" id="apiFallbackUrl" placeholder="https://backup.emergency.gov/ambulance/status">
-                </div>
-                <div class="form-group">
-                    <label for="apiCheckInterval">Check Interval (seconds)</label>
-                    <input type="number" id="apiCheckInterval" min="10" max="3600" value="30">
-                </div>
-                <div class="form-actions">
+                <input type="url" id="apiUrl" placeholder="https://api.example.com/v1/status" required>
+                <input type="text" id="apiCategory" placeholder="Category (e.g., Payment APIs)">
+                <input type="text" id="apiHeaderName" placeholder="Header Name (Optional)">
+                <input type="text" id="apiHeaderValue" placeholder="Header Value (Optional)">
+                <input type="email" id="apiEmail" placeholder="Notification Email (Optional)">
+                <select id="apiFrequency" required>
+                    <option value="" disabled selected>Select Check Frequency</option>
+                    <option value="60">1 Hour (every 60 minutes)</option>
+                    <option value="30">30 Minutes</option>
+                    <option value="10">10 Minutes</option>
+                    <option value="5">5 Minutes</option>
+                    <option value="2">2 Minutes</option>
+                    <option value="1">1 Minute</option>
+                    <option value="0.5" data-premium="true">30 Seconds (Subscriber)</option>
+                    <option value="0.167" data-premium="true">10 Seconds (Subscriber)</option>
+                    <option value="0.0833" data-premium="true">5 Seconds (Subscriber)</option>
+                    <option value="0.0167" data-premium="true">1 Second (Subscriber)</option>
+                </select>
+                <div class="modal-actions">
                     <button type="button" id="cancelBtn" class="button-secondary">Cancel</button>
                     <button type="submit" id="modalSubmitBtn" class="button-primary">Add Monitor</button>
                 </div>
@@ -487,28 +334,16 @@
         </div>
     </div>
 
-    <!-- Details View -->
-    <div id="detailsView" class="details-view hidden">
-        <button id="backBtn" class="button-secondary">
-            <i class="ri-arrow-left-line"></i> Back to Dashboard
-        </button>
-        <div id="detailsContent">
-            <!-- Details will be populated here -->
-        </div>
-    </div>
-                
-                
-
     <div id="reportModal" class="modal-overlay hidden">
         <div class="modal-content large" id="reportModalContent">
-            </div>
+        </div>
     </div>
 
     <!-- AI Insights Modal -->
     <div id="aiInsightsModal" class="modal-overlay hidden">
         <div class="modal-content large ai-modal">
             <div class="modal-header">
-                <h2>🤖 AI Insights & Predictions</h2>
+                <h2><i class="ri-robot-line"></i> AI Insights & Predictions</h2>
                 <button id="closeAiModal" class="button-icon">✕</button>
             </div>
             <div id="aiInsightsContent" class="ai-insights-content">
@@ -521,7 +356,7 @@
     <div id="trainingHistoryModal" class="modal-overlay hidden">
         <div class="modal-content large ai-modal">
             <div class="modal-header">
-                <h2>📚 AI Training History</h2>
+                <h2><i class="ri-history-line"></i> AI Training History</h2>
                 <button id="closeTrainingHistory" class="button-icon">✕</button>
             </div>
             <div id="trainingHistoryContent" class="ai-insights-content">
@@ -534,23 +369,25 @@
     <div id="tokenHelpModal" class="modal-overlay hidden">
         <div class="modal-content large">
             <div class="modal-header">
-                <h2>🔑 How to Get GitHub Personal Access Token</h2>
+                <h2><i class="ri-key-line"></i> How to Get GitHub Personal Access Token</h2>
                 <button id="closeTokenHelp" class="button-icon">✕</button>
             </div>
             <div style="padding: 1.5rem; color: #C9D1D9;">
                 <h3 style="color: #58A6FF; margin-top: 0;">Step-by-Step Guide:</h3>
-                
+
                 <div style="background: #161B22; padding: 1rem; border-radius: 6px; margin: 1rem 0;">
                     <p style="margin: 0.5rem 0;"><strong>1.</strong> Go to GitHub Settings</p>
                     <p style="margin: 0.5rem 0; padding-left: 1.5rem;">
-                        Visit: <a href="https://github.com/settings/tokens" target="_blank" style="color: #58A6FF;">https://github.com/settings/tokens</a>
+                        Visit: <a href="https://github.com/settings/tokens" target="_blank"
+                            style="color: #58A6FF;">https://github.com/settings/tokens</a>
                     </p>
                 </div>
 
                 <div style="background: #161B22; padding: 1rem; border-radius: 6px; margin: 1rem 0;">
                     <p style="margin: 0.5rem 0;"><strong>2.</strong> Generate New Token</p>
                     <p style="margin: 0.5rem 0; padding-left: 1.5rem;">
-                        Click <strong>"Generate new token"</strong> → Select <strong>"Generate new token (classic)"</strong>
+                        Click <strong>"Generate new token"</strong> → Select <strong>"Generate new token
+                            (classic)"</strong>
                     </p>
                 </div>
 
@@ -563,7 +400,9 @@
                     </p>
                     <ul style="padding-left: 3rem; margin: 0.5rem 0;">
                         <li>✅ <strong>repo</strong> (Full control of private repositories)</li>
-                        <li>✅ <strong>read:org</strong> (Read org and team membership)</li>
+                        <li><i class="ri-checkbox-circle-line" style="color: var(--secondary);"></i>
+                            <strong>read:org</strong> (Read org and team membership)
+                        </li>
                     </ul>
                 </div>
 
@@ -571,7 +410,8 @@
                     <p style="margin: 0.5rem 0;"><strong>4.</strong> Generate & Copy</p>
                     <p style="margin: 0.5rem 0; padding-left: 1.5rem;">
                         Click <strong>"Generate token"</strong> at the bottom<br>
-                        ⚠️ <strong>IMPORTANT:</strong> Copy the token immediately! You won't see it again.
+                        <i class="ri-error-warning-line" style="color: var(--danger);"></i> <strong>IMPORTANT:</strong>
+                        Copy the token immediately! You won't see it again.
                     </p>
                 </div>
 
@@ -586,7 +426,8 @@
                 <div style="background: #1F6FEB; padding: 1rem; border-radius: 6px; margin: 1.5rem 0;">
                     <p style="margin: 0; font-weight: bold;"><i class="ri-lightbulb-line"></i> Pro Tip:</p>
                     <p style="margin: 0.5rem 0 0 0;">
-                        Token format looks like: <code style="background: #0D1117; padding: 2px 6px; border-radius: 3px;">ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</code>
+                        Token format looks like: <code
+                            style="background: #0D1117; padding: 2px 6px; border-radius: 3px;">ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</code>
                     </p>
                 </div>
 
@@ -599,19 +440,22 @@
             </div>
         </div>
     </div>
-    
+
     <div id="tooltip" class="tooltip hidden"></div>
-    <div id="toastContainer" class="toast-container"></div>
 
     <!-- Alert Preview Modal -->
-    <div id="alertPreviewModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="alertPreviewTitle">
+    <div id="alertPreviewModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+        aria-labelledby="alertPreviewTitle">
         <div class="modal-content large">
             <div class="modal-header">
-                <h2 id="alertPreviewTitle">📢 Community Alert Preview</h2>
-                <button id="closeAlertPreview" class="button-icon" type="button" title="Close alert preview" aria-label="Close alert preview">✕</button>
+                <h2 id="alertPreviewTitle"><i class="ri-megaphone-line"></i> Community Alert Preview</h2>
+                <button id="closeAlertPreview" class="button-icon" type="button" title="Close alert preview"
+                    aria-label="Close alert preview">✕</button>
             </div>
             <div class="preview-tabs">
-                <button class="preview-tab active" data-tab="email">Email</button>
+                <button class="preview-tab active" data-tab="whatsapp">WhatsApp</button>
+                <button class="preview-tab" data-tab="sms">SMS</button>
+                <button class="preview-tab" data-tab="ivr">IVR Script</button>
             </div>
             <div id="previewContent" class="preview-content">
                 <p class="placeholder">Select a tab to see alert copy.</p>
@@ -620,16 +464,25 @@
     </div>
 
     <!-- Worker Responses Modal -->
-    <div id="workerResponsesModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="workerResponsesTitle">
+    <div id="workerResponsesModal" class="modal-overlay hidden" role="dialog" aria-modal="true"
+        aria-labelledby="workerResponsesTitle">
         <div class="modal-content large">
             <div class="modal-header">
-                <h2 id="workerResponsesTitle">👥 Worker Responses</h2>
-                <button id="closeWorkerResponses" class="button-icon" type="button" title="Close worker responses" aria-label="Close worker responses">✕</button>
+                <h2 id="workerResponsesTitle"><i class="ri-group-line"></i> Worker Responses</h2>
+                <button id="closeWorkerResponses" class="button-icon" type="button" title="Close worker responses"
+                    aria-label="Close worker responses">✕</button>
             </div>
             <div class="worker-table-wrapper">
                 <table class="worker-table">
                     <thead>
-                        <tr><th>Name</th><th>Channel</th><th>Response</th><th>API</th><th>Timestamp</th><th>Status</th></tr>
+                        <tr>
+                            <th>Name</th>
+                            <th>Channel</th>
+                            <th>Response</th>
+                            <th>API</th>
+                            <th>Timestamp</th>
+                            <th>Status</th>
+                        </tr>
                     </thead>
                     <tbody id="workerResponsesBody"></tbody>
                 </table>
@@ -641,4 +494,5 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/static_advanced/monitor.js"></script>
 </body>
+
 </html>

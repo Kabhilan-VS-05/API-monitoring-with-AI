@@ -12,10 +12,15 @@ document.addEventListener("DOMContentLoaded", () => {
   const modalSubmitBtn = document.getElementById("modalSubmitBtn");
   const apiEditId = document.getElementById("apiEditId");
   const themeToggleBtn = document.getElementById('themeToggleBtn');
+  const authBtn = document.getElementById('authBtn');
+  const sloTotalMonitors = document.getElementById('sloTotalMonitors');
+  const sloAvgUptime = document.getElementById('sloAvgUptime');
+  const sloAvgBudget = document.getElementById('sloAvgBudget');
+  const sloBurnAlerts = document.getElementById('sloBurnAlerts');
   let detailChart = null;
-  const settingsBtn = document.getElementById('settingsBtn');
-  const settingsPanel = document.getElementById('settingsPanel');
-  const closeSettingsPanel = document.getElementById('closeSettingsPanel');
+  const communityPanelBtn = document.getElementById('communityPanelBtn');
+  const communityPanel = document.getElementById('communityPanel');
+  const closeCommunityPanel = document.getElementById('closeCommunityPanel');
   const contactForm = document.getElementById('contactForm');
   const contactTableBody = document.getElementById('contactTableBody');
   const translationBtns = document.querySelectorAll('.translation-btn');
@@ -39,532 +44,78 @@ document.addEventListener("DOMContentLoaded", () => {
   const workerResponsesBody = document.getElementById('workerResponsesBody');
   const viewFullTimeline = document.getElementById('viewFullTimeline');
   const communityPanelBackdrop = document.getElementById('communityPanelBackdrop');
-  const addContactBtn = document.getElementById('addContactBtn');
-  const warRoomBtn = document.getElementById('warRoomBtn');
-  const warRoomModal = document.getElementById('warRoomModal');
-  const closeWarRoom = document.getElementById('closeWarRoom');
-  // Elements in Unified Settings (GitHub help + actions)
-  const tokenHelpLink = document.getElementById('tokenHelpLink');
-  const tokenHelpModal = document.getElementById('tokenHelpModal');
-  const closeTokenHelp = document.getElementById('closeTokenHelp');
-  const syncGithubBtn = document.getElementById('syncGithubBtn');
-  const exportDatasetBtn = document.getElementById('exportDatasetBtn');
 
-  // --- Community Guardian Healthcare Features ---
-  
-  // Healthcare API Categories and Impact Scoring
-  const healthcareCategories = {
-    emergency_dispatch: { priority: 'critical', impact: 95, icon: '🚨' },
-    life_support: { priority: 'critical', impact: 98, icon: '❤️' },
-    emergency_alerts: { priority: 'critical', impact: 92, icon: '📢' },
-    hospital_operations: { priority: 'high', impact: 80, icon: '🏥' },
-    telemedicine: { priority: 'high', impact: 75, icon: '💻' },
-    vaccination: { priority: 'high', impact: 70, icon: '💉' },
-    health_records: { priority: 'medium', impact: 60, icon: '📋' },
-    supply_chain: { priority: 'medium', impact: 55, icon: '🚚' },
-    public_health: { priority: 'medium', impact: 50, icon: '📊' }
-  };
-
-  // War Room functionality
-  let activeIncidents = [];
-  let chatMessages = [];
-  let simulatorResults = [];
-
-  warRoomBtn?.addEventListener('click', () => {
-    warRoomModal?.classList.remove('hidden');
-    initializeWarRoom();
-  });
-
-  closeWarRoom?.addEventListener('click', () => {
-    warRoomModal?.classList.add('hidden');
-  });
-
-  function initializeWarRoom() {
-    loadActiveIncidents();
-    initializeChat();
-    loadSimulator();
-    updateImpactMap();
-  }
-
-  function loadActiveIncidents() {
-    const incidentsContainer = document.getElementById('warRoomIncidents');
-    const badgeEl = document.getElementById('warRoomIncidentBadge');
-    const heroEtaEl = document.getElementById('heroResponseEta');
-    if (!incidentsContainer) return;
-
-    const downMonitors = latestMonitors.filter(m => m.status === 'down');
-    activeIncidents = downMonitors.map(monitor => ({
-      id: monitor.id,
-      title: `${healthcareCategories[monitor.category]?.icon || '⚠️'} ${monitor.api_name || monitor.name}`,
-      description: `${monitor.category?.replace('_', ' ') || 'API'} degraded`,
-      impact: healthcareCategories[monitor.category]?.impact || 50,
-      priority: healthcareCategories[monitor.category]?.priority || 'medium',
-      startTime: new Date(Date.now() - Math.random() * 3600000).toISOString(),
-      etaMinutes: Math.floor(Math.random() * 90) + 10,
-      status: monitor.status || 'down'
-    }));
-
-    incidentsContainer.innerHTML = activeIncidents.length ? activeIncidents.map(incident => `
-      <div class="incident-item priority-${incident.priority}">
-        <div class="incident-header">
-          <h4>${incident.title}</h4>
-          <span class="incident-time">${formatIncidentTime(incident.startTime)}</span>
-        </div>
-        <p>${incident.description}</p>
-        <div class="incident-meta">
-          <span class="badge ghost">Impact ${incident.impact}</span>
-          <span class="badge">ETA ${formatEta(incident.etaMinutes)}</span>
-        </div>
-        <div class="incident-actions">
-          <button class="button-small" data-incident="${incident.id}" data-action="details">Details</button>
-          <button class="button-small emergency" data-incident="${incident.id}" data-action="simulate">Simulate Fix</button>
-        </div>
-      </div>
-    `).join('') : '<p class="placeholder">All systems stable ✨</p>';
-
-    if (badgeEl) badgeEl.textContent = `${activeIncidents.length} live`;
-    if (heroEtaEl) {
-      const avgEta = activeIncidents.length ? Math.round(activeIncidents.reduce((sum, i) => sum + i.etaMinutes, 0) / activeIncidents.length) : null;
-      heroEtaEl.textContent = formatEta(avgEta);
-    }
-  }
-
-  document.getElementById('warRoomIncidents')?.addEventListener('click', (e) => {
-    const button = e.target.closest('button[data-incident]');
-    if (!button) return;
-    const id = button.dataset.incident;
-    const action = button.dataset.action;
-    if (action === 'simulate') {
-      simulateFix(id);
-    } else {
-      viewIncidentDetails(id);
-    }
-  });
-
-  function initializeChat() {
-    const chatContainer = document.getElementById('chatMessages');
-    if (!chatContainer) return;
-
-    // Add welcome message
-    chatMessages = [
-      {
-        id: 1,
-        user: 'System',
-        message: '🏛️ War Room activated. Monitoring critical healthcare systems.',
-        timestamp: new Date().toISOString(),
-        type: 'system'
-      }
+  function updateBodyScrollLock() {
+    const overlayIds = [
+      "addApiModal",
+      "reportModal",
+      "aiInsightsModal",
+      "trainingHistoryModal",
+      "tokenHelpModal",
+      "alertPreviewModal",
+      "workerResponsesModal",
+      "communityPanel"
     ];
-
-    renderChatMessages();
-  }
-
-  function renderChatMessages() {
-    const chatContainer = document.getElementById('chatMessages');
-    if (!chatContainer) return;
-
-    chatContainer.innerHTML = chatMessages.map(msg => `
-      <div class="chat-message ${msg.type}">
-        <div class="chat-header">
-          <span class="chat-user">${msg.user}</span>
-          <span class="chat-time">${formatChatTime(msg.timestamp)}</span>
-        </div>
-        <div class="chat-content">${msg.message}</div>
-      </div>
-    `).join('');
-
-    chatContainer.scrollTop = chatContainer.scrollHeight;
-  }
-
-  function loadSimulator() {
-    const simulatorControls = document.getElementById('simulatorControls');
-    if (!simulatorControls) return;
-
-    simulatorControls.innerHTML = `
-      <div class="simulator-options">
-        <div class="sim-option">
-          <label>Scenario Type:</label>
-          <select id="scenarioType">
-            <option value="network_outage">Network Outage</option>
-            <option value="server_crash">Server Crash</option>
-            <option value="database_issue">Database Issue</option>
-            <option value="api_overload">API Overload</option>
-          </select>
-        </div>
-        <div class="sim-option">
-          <label>Duration (minutes):</label>
-          <input type="number" id="scenarioDuration" min="1" max="60" value="5">
-        </div>
-        <div class="sim-option">
-          <label>Affected APIs:</label>
-          <select id="affectedApis" multiple>
-            ${latestMonitors.map(m => `<option value="${m.id}">${m.api_name || m.name}</option>`).join('')}
-          </select>
-        </div>
-        <button onclick="runSimulation()" class="button-primary">🎯 Run Simulation</button>
-        <button onclick="clearSimulation()" class="button-secondary">Clear</button>
-      </div>
-    `;
-  }
-
-  function runSimulation() {
-    const scenarioType = document.getElementById('scenarioType')?.value;
-    const duration = document.getElementById('scenarioDuration')?.value;
-    const affectedApis = Array.from(document.getElementById('affectedApis')?.selectedOptions || [])
-      .map(option => option.value);
-
-    if (!scenarioType || !duration || affectedApis.length === 0) {
-      alert('Please select scenario type, duration, and at least one API');
-      return;
-    }
-
-    const simulation = {
-      id: Date.now(),
-      type: scenarioType,
-      duration: parseInt(duration),
-      affectedApis: affectedApis,
-      startTime: new Date().toISOString(),
-      status: 'running'
-    };
-
-    simulatorResults.push(simulation);
-    renderSimulationResults();
-
-    // Add chat message about simulation
-    addChatMessage('System', `🎯 Running ${scenarioType.replace('_', ' ')} simulation for ${duration} minutes affecting ${affectedApis.length} APIs`, 'system');
-
-    // Simulate results after delay
-    setTimeout(() => {
-      simulation.status = 'completed';
-      simulation.results = {
-        impact: Math.floor(Math.random() * 40) + 60,
-        recommendedActions: [
-          'Scale up server resources',
-          'Enable load balancing',
-          'Activate backup systems',
-          'Notify emergency coordinators'
-        ]
-      };
-      renderSimulationResults();
-      addChatMessage('AI Assistant', `✅ Simulation completed. Impact: ${simulation.results.impact}%. Recommended: ${simulation.results.recommendedActions[0]}`, 'ai');
-    }, 3000);
-  }
-
-  function renderSimulationResults() {
-    const resultsContainer = document.getElementById('simulatorResults');
-    if (!resultsContainer) return;
-
-    resultsContainer.innerHTML = simulatorResults.map(sim => `
-      <div class="simulation-result ${sim.status}">
-        <h4>${sim.type.replace('_', ' ').toUpperCase()} Simulation</h4>
-        <div class="sim-details">
-          <p><strong>Duration:</strong> ${sim.duration} minutes</p>
-          <p><strong>Affected APIs:</strong> ${sim.affectedApis.length}</p>
-          <p><strong>Status:</strong> ${sim.status}</p>
-          ${sim.results ? `
-            <p><strong>Predicted Impact:</strong> ${sim.results.impact}%</p>
-            <div class="recommended-actions">
-              <strong>Recommended Actions:</strong>
-              <ul>
-                ${sim.results.recommendedActions.map(action => `<li>${action}</li>`).join('')}
-              </ul>
-            </div>
-          ` : ''}
-        </div>
-      </div>
-    `).join('');
-  }
-
-  function clearSimulation() {
-    simulatorResults = [];
-    renderSimulationResults();
-    addChatMessage('System', '🧹 Simulation results cleared', 'system');
-  }
-
-  function updateImpactMap() {
-    const impactMapContainer = document.getElementById('impactMap');
-    if (!impactMapContainer) return;
-
-    // Create a simple impact visualization
-    const criticalCount = latestMonitors.filter(m => 
-      healthcareCategories[m.category]?.priority === 'critical' && m.status === 'down'
-    ).length;
-
-    const highCount = latestMonitors.filter(m => 
-      healthcareCategories[m.category]?.priority === 'high' && m.status === 'down'
-    ).length;
-
-    impactMapContainer.innerHTML = `
-      <div class="impact-visualization">
-        <div class="impact-summary">
-          <div class="impact-metric critical">
-            <h4>🚨 Critical Systems</h4>
-            <div class="impact-number">${criticalCount}</div>
-            <div class="impact-label">Systems Down</div>
-          </div>
-          <div class="impact-metric high">
-            <h4>⚕️ High Priority</h4>
-            <div class="impact-number">${highCount}</div>
-            <div class="impact-label">Systems Affected</div>
-          </div>
-          <div class="impact-metric total">
-            <h4>🏥 Total Coverage</h4>
-            <div class="impact-number">${latestMonitors.length}</div>
-            <div class="impact-label">Healthcare APIs</div>
-          </div>
-        </div>
-        <div class="impact-chart">
-          <canvas id="impactCanvas" width="400" height="200"></canvas>
-        </div>
-      </div>
-    `;
-
-    // Draw simple impact chart
-    drawImpactChart();
-  }
-
-  function drawImpactChart() {
-    const canvas = document.getElementById('impactCanvas');
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d');
-    const width = canvas.width;
-    const height = canvas.height;
-
-    // Clear canvas
-    ctx.clearRect(0, 0, width, height);
-
-    // Draw simple bar chart
-    const categories = ['Critical', 'High', 'Medium', 'Low'];
-    const values = [
-      latestMonitors.filter(m => healthcareCategories[m.category]?.priority === 'critical').length,
-      latestMonitors.filter(m => healthcareCategories[m.category]?.priority === 'high').length,
-      latestMonitors.filter(m => healthcareCategories[m.category]?.priority === 'medium').length,
-      latestMonitors.filter(m => healthcareCategories[m.category]?.priority === 'low').length
-    ];
-    const colors = ['#dc2626', '#fb923c', '#3b82f6', '#6b7280'];
-
-    const barWidth = width / (categories.length * 2);
-    const maxValue = Math.max(...values, 1);
-
-    categories.forEach((cat, i) => {
-      const barHeight = (values[i] / maxValue) * (height - 40);
-      const x = (i * 2 + 0.5) * barWidth;
-      const y = height - barHeight - 20;
-
-      // Draw bar
-      ctx.fillStyle = colors[i];
-      ctx.fillRect(x, y, barWidth, barHeight);
-
-      // Draw label
-      ctx.fillStyle = '#fff';
-      ctx.font = '12px Inter';
-      ctx.textAlign = 'center';
-      ctx.fillText(cat, x + barWidth/2, height - 5);
-      ctx.fillText(values[i], x + barWidth/2, y - 5);
+    const shouldLock = overlayIds.some((id) => {
+      const el = document.getElementById(id);
+      return el && !el.classList.contains("hidden");
     });
+    document.body.classList.toggle("scroll-locked", shouldLock);
   }
 
-  function addChatMessage(user, message, type = 'user') {
-    chatMessages.push({
-      id: Date.now(),
-      user: user,
-      message: message,
-      timestamp: new Date().toISOString(),
-      type: type
-    });
-    renderChatMessages();
-  }
-
-  // Chat functionality
-  const chatInput = document.getElementById('chatInput');
-  const sendMessage = document.getElementById('sendMessage');
-
-  sendMessage?.addEventListener('click', () => {
-    if (chatInput?.value.trim()) {
-      addChatMessage('You', chatInput.value.trim(), 'user');
-      chatInput.value = '';
-      
-      // Simulate AI response
-      setTimeout(() => {
-        const responses = [
-          '🤖 Analyzing the situation...',
-          '🧠 Running diagnostic algorithms...',
-          '📊 Checking system dependencies...',
-          '🎯 Calculating impact probability...'
-        ];
-        addChatMessage('AI Assistant', responses[Math.floor(Math.random() * responses.length)], 'ai');
-      }, 1000);
-    }
-  });
-
-  chatInput?.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-      sendMessage?.click();
-    }
-  });
-
-  // Helper functions
-  function formatIncidentTime(timestamp) {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diff = now - date;
-    const minutes = Math.floor(diff / 60000);
-    
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    return date.toLocaleDateString();
-  }
-
-  function formatChatTime(timestamp) {
-    return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }
-
-  function viewIncidentDetails(incidentId) {
-    const incident = activeIncidents.find(i => i.id === incidentId);
-    if (incident) {
-      addChatMessage('System', `📊 Loading details for incident: ${incident.title}`, 'system');
-      // Add more detailed incident analysis here
-    }
-  }
-
-  function simulateFix(incidentId) {
-    const incident = activeIncidents.find(i => i.id === incidentId);
-    if (incident) {
-      addChatMessage('System', `🔧 Simulating fix for: ${incident.title}`, 'system');
-      setTimeout(() => {
-        addChatMessage('AI Assistant', `✅ Fix simulation successful. Estimated recovery time: 2-3 minutes`, 'ai');
-      }, 2000);
-    }
-  }
-
-  // Update healthcare stats
-  function updateHealthcareStats() {
-    const criticalCount = latestMonitors.filter(m => 
-      healthcareCategories[m.category]?.priority === 'critical'
-    ).length;
-    
-    const highCount = latestMonitors.filter(m => 
-      healthcareCategories[m.category]?.priority === 'high'
-    ).length;
-
-    const activeIncidents = latestMonitors.filter(m => m.status === 'down').length;
-    const uptimePercent = latestMonitors.length > 0 ? 
-      Math.round((latestMonitors.filter(m => m.status === 'up').length / latestMonitors.length) * 100) : 0;
-
-    const criticalEl = document.getElementById('criticalCount');
-    const highEl = document.getElementById('highCount');
-    const incidentsEl = document.getElementById('activeIncidentsCount');
-    const uptimeEl = document.getElementById('uptimePercent');
-    const heroCriticalEl = document.getElementById('heroCriticalCount');
-    const heroStabilityEl = document.getElementById('heroStability');
-
-    if (criticalEl) criticalEl.textContent = criticalCount;
-    if (highEl) highEl.textContent = highCount;
-    if (incidentsEl) incidentsEl.textContent = activeIncidents;
-    if (uptimeEl) uptimeEl.textContent = `${uptimePercent}%`;
-    if (heroCriticalEl) heroCriticalEl.textContent = criticalCount;
-    if (heroStabilityEl) heroStabilityEl.textContent = `${uptimePercent}% stable`;
-  }
-
-  function formatEta(minutes) {
-    if (!minutes || Number.isNaN(minutes)) return '--';
-    if (minutes < 60) return `${minutes}m`;
-    const hours = Math.floor(minutes / 60);
-    return `${hours}h ${minutes % 60}m`;
-  }
+  // --- Theme Handling ---
   function setIconForTheme(theme) {
     if (theme === 'dark') {
-      themeToggleBtn.innerHTML = `<i class="ri-moon-line" style="font-size: 1.25rem;"></i>`;
-    } else {
       themeToggleBtn.innerHTML = `<i class="ri-sun-line" style="font-size: 1.25rem;"></i>`;
+      themeToggleBtn.setAttribute("aria-label", "Switch to light mode");
+    } else {
+      themeToggleBtn.innerHTML = `<i class="ri-moon-line" style="font-size: 1.25rem;"></i>`;
+      themeToggleBtn.setAttribute("aria-label", "Switch to dark mode");
     }
-  }
-
-  // Toast helper
-  function showToast(message, type = 'info', durationMs = 4000) {
-    const container = document.getElementById('toastContainer');
-    if (!container) return;
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    const icon = type === 'success' ? 'ri-check-line' : type === 'error' ? 'ri-error-warning-line' : type === 'warning' ? 'ri-alert-line' : 'ri-information-line';
-    toast.innerHTML = `<i class="${icon}"></i><span>${message}</span>`;
-    container.appendChild(toast);
-    setTimeout(() => { toast.style.animation = 'slideInRight 0.3s ease-out reverse'; setTimeout(() => toast.remove(), 300); }, durationMs);
   }
 
   function applyTheme(theme) {
-    if (theme === 'dark') {
-      document.documentElement.setAttribute('data-theme', 'dark');
-    } else {
-      document.documentElement.removeAttribute('data-theme');
-    }
+    document.documentElement.setAttribute('data-theme', theme);
+    document.body.setAttribute('data-theme', theme);
     localStorage.setItem('theme', theme);
     setIconForTheme(theme);
   }
 
-  themeToggleBtn?.addEventListener('click', () => {
-    const currentTheme = localStorage.getItem('theme') || 'light';
+  themeToggleBtn.addEventListener('click', () => {
+    const currentTheme = localStorage.getItem('theme') || 'dark'; // Default to dark
     const newTheme = currentTheme === 'light' ? 'dark' : 'light';
     applyTheme(newTheme);
   });
+
+  // Apply initial theme
+  const initialTheme = localStorage.getItem('theme') || 'dark';
+  applyTheme(initialTheme);
+
 
   const communityStorageKey = 'communityContacts';
   const preferredLanguageKey = 'preferredLanguage';
   let communityContacts = JSON.parse(localStorage.getItem(communityStorageKey)) || [];
   let latestMonitors = [];
+  let currentSubscription = {
+    plan: 'free',
+    features: {
+      premium_frequency_locked: true,
+      community_communication_enabled: false
+    }
+  };
 
-  function populateApiCheckboxes() {
-    const apiCheckboxes = document.getElementById('apiCheckboxes');
-    if (!apiCheckboxes) {
-      console.error('API Checkboxes container not found!');
-      return;
-    }
-    
-    apiCheckboxes.innerHTML = '';
-    
-    if (!latestMonitors || latestMonitors.length === 0) {
-      apiCheckboxes.innerHTML = '<p style="color: #666; font-size: 0.9rem;">No APIs available. Add monitors first.</p>';
-      console.log('No monitors available for API checkboxes');
-      return;
-    }
-    
-    console.log(`Populating API checkboxes with ${latestMonitors.length} monitors:`, latestMonitors);
-    
-    latestMonitors.forEach(monitor => {
-      const label = document.createElement('label');
-      label.style.cssText = 'display: flex; align-items: center; gap: 8px; margin-bottom: 8px; cursor: pointer;';
-      
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.value = monitor.id || monitor._id || monitor.api_url || monitor.url;
-      checkbox.style.cssText = 'margin: 0;';
-      
-      const nameSpan = document.createElement('span');
-      nameSpan.className = 'api-name';
-      nameSpan.textContent = monitor.api_name || monitor.name || monitor.api_url || monitor.url;
-      nameSpan.style.cssText = 'flex: 1; font-weight: 500;';
-      
-      const statusSpan = document.createElement('span');
-      statusSpan.className = `api-status ${monitor.status === 'up' ? 'up' : 'down'}`;
-      statusSpan.textContent = monitor.status || 'unknown';
-      statusSpan.style.cssText = 'padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;';
-      if (monitor.status === 'up') {
-        statusSpan.style.backgroundColor = '#28a745';
-        statusSpan.style.color = 'white';
-      } else {
-        statusSpan.style.backgroundColor = '#dc3545';
-        statusSpan.style.color = 'white';
+  function applySubscriptionUI() {
+    const freqSelect = document.getElementById("apiFrequency");
+    if (freqSelect) {
+      const premiumLocked = currentSubscription?.features?.premium_frequency_locked !== false;
+      Array.from(freqSelect.options).forEach(opt => {
+        const isPremium = opt.dataset && opt.dataset.premium === "true";
+        opt.disabled = !!(isPremium && premiumLocked);
+      });
+      if (premiumLocked && freqSelect.selectedOptions?.[0]?.dataset?.premium === "true") {
+        freqSelect.value = "1";
       }
-      
-      label.appendChild(checkbox);
-      label.appendChild(nameSpan);
-      label.appendChild(statusSpan);
-      apiCheckboxes.appendChild(label);
-    });
-    
-    console.log('API checkboxes populated successfully');
+    }
   }
 
   function renderContacts() {
@@ -572,31 +123,17 @@ document.addEventListener("DOMContentLoaded", () => {
     contactTableBody.innerHTML = communityContacts.map((contact, idx) => `
       <tr>
         <td>${contact.name}</td>
-        <td>${contact.email}</td>
+        <td>${contact.phone}</td>
+        <td>${contact.channel}</td>
         <td>${contact.language}</td>
-        <td>${(contact.apis || []).join(', ') || 'None'}</td>
+        <td>${contact.groups}</td>
         <td><button class="button-secondary" onclick="window._removeContact(${idx})">Remove</button></td>
-      </tr>`).join('') || '<tr><td colspan="5" class="placeholder">No contacts configured yet.</td></tr>';
+      </tr>`).join('') || '<tr><td colspan="6" class="placeholder">No contacts configured yet.</td></tr>';
   }
 
-  async function saveContacts() {
+  function saveContacts() {
     localStorage.setItem(communityStorageKey, JSON.stringify(communityContacts));
     renderContacts();
-    
-    // Also save to database
-    try {
-      for (const contact of communityContacts) {
-        await fetch('/api/contacts', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(contact)
-        });
-      }
-    } catch (error) {
-      console.error('Failed to save contacts to database:', error);
-    }
   }
 
   function removeContact(index) {
@@ -606,41 +143,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
   window._removeContact = removeContact;
 
-  contactForm?.addEventListener('submit', async (event) => {
+  contactForm?.addEventListener('submit', (event) => {
     event.preventDefault();
-    const selectedApis = Array.from(document.querySelectorAll('#apiCheckboxes input[type="checkbox"]:checked'))
-      .map(cb => cb.value);
-    
     const contact = {
       name: document.getElementById('contactName').value.trim(),
       phone: document.getElementById('contactPhone').value.trim(),
-      email: document.getElementById('contactEmail').value.trim(),
-      role: document.getElementById('contactRole').value,
+      channel: document.getElementById('contactChannel').value,
       language: document.getElementById('contactLanguage').value,
-      apis: selectedApis,
-      alertPreferences: {
-        sms: document.getElementById('smsAlerts').checked,
-        whatsapp: document.getElementById('whatsappAlerts').checked,
-        ivr: document.getElementById('ivrAlerts').checked
-      }
+      groups: document.getElementById('contactGroups').value.trim()
     };
-    
     communityContacts.push(contact);
-    saveContacts();
-    renderContacts();
-    
-    // Reset form
     contactForm.reset();
-    
-    // Show success feedback
-    const saveBtn = contactForm.querySelector('button[type="submit"]');
-    const originalText = saveBtn.textContent;
-    saveBtn.textContent = 'Emergency Contact Saved!';
-    saveBtn.style.backgroundColor = '#28a745';
-    setTimeout(() => {
-      saveBtn.textContent = originalText;
-      saveBtn.style.backgroundColor = '';
-    }, 2000);
+    saveContacts();
   });
 
   translationBtns?.forEach(btn => {
@@ -677,147 +191,77 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 
-  async function populateTimeline() {
-    if (!notificationTimeline) return;
-    
-    // Show loading state
-    notificationTimeline.innerHTML = '<div class="loading-placeholder"><i class="ri-loader-4-line ri-spin"></i> Loading activity timeline...</div>';
-    
+  sendTestAlert?.addEventListener('click', async () => {
+    if (!testAlertApi.value) {
+      testAlertStatus.textContent = 'Select an API to test.';
+      return;
+    }
+    testAlertStatus.textContent = 'Sending test alert...';
+    const channel = testAlertChannel.value;
+    const message = testAlertMessage.value.trim() || 'Test alert from Community Communication Panel.';
     try {
-      const res = await fetch('/api/alerts/timeline');
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      const response = await fetch(`/notify/${channel}/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          api_id: testAlertApi.value,
+          alert_id: `test-${Date.now()}`,
+          phone_number: '+919000000000',
+          message_text: message
+        })
+      });
+      const data = await response.json();
+      if (data.success) {
+        testAlertStatus.textContent = 'Test alert sent successfully!';
+      } else {
+        testAlertStatus.textContent = `Failed: ${data.error || 'Unknown error'}`;
       }
+    } catch (error) {
+      testAlertStatus.textContent = 'Test alert failed to deliver.';
+    }
+  });
+
+  async function populateTimeline() {
+    if (!notificationTimeline || !latestMonitors.length) return;
+    try {
+      const apiId = latestMonitors[0].id;
+      const res = await fetch(`/api/worker-responses/${apiId}?limit=10`);
       const data = await res.json();
-      const alerts = data.alerts || [];
-      
-      if (alerts.length === 0) {
-        notificationTimeline.innerHTML = '<div class="no-activity-placeholder"><i class="ri-notification-off-line"></i> No recent healthcare API activity</div>';
+      if (!data || data.length === 0) {
+        notificationTimeline.innerHTML = '<p class="placeholder">No recent activity.</p>';
         return;
       }
-      
-      notificationTimeline.innerHTML = alerts.map((alert, index) => {
-        const time = alert.timestamp ? formatTimeAgo(new Date(alert.timestamp)) : 'just now';
-        const icon = getAlertIcon(alert.type);
-        const severityClass = alert.severity || 'medium';
-        const apiInfo = alert.api_url || alert.api_id || '';
-        
-        return `
-          <div class="timeline-entry ${severityClass}">
-            <div class="timeline-header">
-              <span class="timeline-icon">${icon}</span>
-              <span class="timeline-message">${alert.message}</span>
-              <span class="timeline-time">${time}</span>
-            </div>
-            ${alert.details ? `<div class="timeline-details">${alert.details}</div>` : ''}
-            ${apiInfo ? `<div class="timeline-api">${apiInfo}</div>` : ''}
-            <div class="timeline-id">#${index + 1}</div>
-          </div>
-        `;
+      notificationTimeline.innerHTML = data.map(entry => {
+        const time = entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString() : 'just now';
+        const statusColor = entry.response === 'FIXED' ? 'green' : entry.response === 'RETRY' ? 'yellow' : entry.response === 'NEED_HELP' ? 'red' : 'yellow';
+        return `<div class="timeline-entry ${statusColor}"><span>${time} — ${entry.channel} reply: ${entry.response || 'Alert delivered'} (${entry.api_id})</span><span>${entry.phone_number || 'Unknown'}</span></div>`;
       }).join('');
-      
     } catch (error) {
-      console.error('Timeline load failed:', error);
-      notificationTimeline.innerHTML = `
-        <p class="placeholder">Failed to load timeline.</p>
-        <p style="font-size: 0.75rem; color: #666; margin-top: 0.5rem;">
-          ${error.message}
-        </p>
-      `;
+      console.warn('Timeline load failed', error);
     }
-  }
-  
-  function getAlertIcon(type) {
-    const icons = {
-      'api_down': '🚨',
-      'email_sent': '📧',
-      'ai_alert': '🤖',
-      'recovery': '✅',
-      'warning': '⚠️',
-      'info': 'ℹ️'
-    };
-    return icons[type] || '📢';
-  }
-  
-  function formatTimeAgo(date) {
-    const now = new Date();
-    const diff = now - date;
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
-    
-    if (minutes < 1) return 'just now';
-    if (minutes < 60) return `${minutes} min${minutes > 1 ? 's' : ''} ago`;
-    if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
-    return `${days} day${days > 1 ? 's' : ''} ago`;
   }
 
   refreshTimeline?.addEventListener('click', populateTimeline);
 
-  viewTrainingHistory?.addEventListener('click', () => {
-    if (latestMonitors.length > 0) {
-      showTrainingHistory(latestMonitors[0].id || latestMonitors[0].api_url || latestMonitors[0].url);
-    } else {
-      alert('No monitors available. Add some APIs to monitor first.');
+  communityPanelBtn?.addEventListener('click', () => {
+    if (currentSubscription?.features?.community_communication_enabled !== true) {
+      alert('Community Communication is available for subscribers only. Free plan supports email and GitHub issues.');
+      return;
     }
-  });
-
-  settingsBtn?.addEventListener('click', () => {
-    settingsPanel?.classList.remove('hidden');
-    if (latestMonitors.length === 0) {
-      fetchMonitors().then(() => {
-        populateApiCheckboxes();
-        populateTimeline();
-        renderContacts();
-      });
-    } else {
-      updateTestSelect(latestMonitors);
-      populateApiCheckboxes(); // Ensure API checkboxes are populated
-      renderContacts();
-    }
-    loadGitHubSettings();
+    communityPanel?.classList.remove('hidden');
+    renderContacts();
     populateTimeline();
-    
-    // Auto-refresh timeline every 30 seconds when panel is open
-    if (window.timelineInterval) clearInterval(window.timelineInterval);
-    window.timelineInterval = setInterval(populateTimeline, 30000);
+    updateBodyScrollLock();
   });
 
-  addContactBtn?.addEventListener('click', () => {
-    // Scroll to contact form
-    const contactForm = document.getElementById('contactForm');
-    if (contactForm) {
-      contactForm.scrollIntoView({ behavior: 'smooth' });
-      // Highlight the form briefly
-      contactForm.style.border = '2px solid #58A6FF';
-      setTimeout(() => {
-        contactForm.style.border = '';
-      }, 2000);
-    }
-    // Ensure API checkboxes are populated
-    if (latestMonitors.length === 0) {
-      fetchMonitors().then(() => {
-        populateApiCheckboxes();
-      });
-    } else {
-      populateApiCheckboxes();
-    }
-  });
-
-  closeSettingsPanel?.addEventListener('click', () => {
-    settingsPanel?.classList.add('hidden');
-    // Stop auto-refresh when panel is closed
-    if (window.timelineInterval) {
-      clearInterval(window.timelineInterval);
-      window.timelineInterval = null;
-    }
+  closeCommunityPanel?.addEventListener('click', () => {
+    communityPanel?.classList.add('hidden');
+    updateBodyScrollLock();
   });
 
   function updateTestSelect(monitors) {
     if (!testAlertApi) return;
-    testAlertApi.innerHTML = monitors.map(m => `<option value="${m.id || m.api_url || m.url}">${m.api_name || m.name || m.api_url || m.url}</option>`).join('');
-    // Also populate API checkboxes for contact form
-    populateApiCheckboxes();
+    testAlertApi.innerHTML = monitors.map(m => `<option value="${m.id}">${m.url}</option>`).join('');
   }
 
   function setPreviewTab(tab) {
@@ -829,15 +273,33 @@ document.addEventListener("DOMContentLoaded", () => {
     btn.addEventListener('click', () => setPreviewTab(btn.dataset.tab));
   });
 
-  closeAlertPreview?.addEventListener('click', () => alertPreviewModal?.classList.add('hidden'));
+  closeAlertPreview?.addEventListener('click', () => {
+    alertPreviewModal?.classList.add('hidden');
+    updateBodyScrollLock();
+  });
 
-  closeWorkerResponses?.addEventListener('click', () => workerResponsesModal?.classList.add('hidden'));
+  closeWorkerResponses?.addEventListener('click', () => {
+    workerResponsesModal?.classList.add('hidden');
+    updateBodyScrollLock();
+  });
+
+  alertPreviewModal?.addEventListener('click', (event) => {
+    if (event.target === alertPreviewModal) {
+      alertPreviewModal.classList.add('hidden');
+      updateBodyScrollLock();
+    }
+  });
+
+  workerResponsesModal?.addEventListener('click', (event) => {
+    if (event.target === workerResponsesModal) {
+      workerResponsesModal.classList.add('hidden');
+      updateBodyScrollLock();
+    }
+  });
 
   viewFullTimeline?.addEventListener('click', () => {
     alert('View full incident timeline in the incidents page.');
   });
-  // Initial render
-  renderContacts();
 
   async function showTrainingHistory(apiId) {
     if (!trainingHistoryModal || !trainingHistoryContent) return;
@@ -849,41 +311,34 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>
     `;
     trainingHistoryModal.classList.remove('hidden');
+    updateBodyScrollLock();
 
     try {
-      // Try AI training service first (port 5001), then fallback to main app
-      let runs = [];
-      try {
-        runs = await fetchJsonOrDefault(`http://localhost:5001/api/ai/training_runs/${apiId}?limit=15`, []);
-      } catch (serviceError) {
-        console.log('AI training service not available, trying main app...');
-        runs = await fetchJsonOrDefault(`/api/ai/training_runs/${apiId}?limit=15`, []);
-      }
-      
+      const runs = await fetchJsonOrDefault(`/api/ai/training_runs/${apiId}?limit=15`, []);
       if (!runs || runs.length === 0) {
-      trainingHistoryContent.innerHTML = '<p class="placeholder">No training runs available yet.</p>';
-      return;
-    }
+        trainingHistoryContent.innerHTML = '<p class="placeholder">No training runs available yet.</p>';
+        return;
+      }
 
-    const latestRun = runs[0];
-    const latestFailure = typeof latestRun.failure_probability === 'number'
-      ? `${(latestRun.failure_probability * 100).toFixed(1)}%`
-      : 'N/A';
-    const latestConfidence = typeof latestRun.confidence === 'number'
-      ? `${(latestRun.confidence * 100).toFixed(1)}%`
-      : 'N/A';
-    const latestRisk = (latestRun.risk_level || 'unknown').toUpperCase();
-    const latestDuration = latestRun.duration_seconds ? `${latestRun.duration_seconds.toFixed(1)}s` : 'N/A';
-    const riskFactorsList = Array.isArray(latestRun.risk_factors) && latestRun.risk_factors.length > 0
-      ? `<ul class="training-history-factors">${latestRun.risk_factors.map(f => `<li>${escapeHtml(f)}</li>`).join('')}</ul>`
-      : '<p class="placeholder">No risk factors captured.</p>';
-    const latestSummary = latestRun.summary ? `<p class="training-history-summary">${escapeHtml(latestRun.summary)}</p>` : '';
-    const latestActions = Array.isArray(latestRun.actions) && latestRun.actions.length > 0
-      ? `<div class="training-history-actions">${latestRun.actions.map(act => `<span>${escapeHtml(act)}</span>`).join('')}</div>`
-      : '';
+      const latestRun = runs[0];
+      const latestFailure = typeof latestRun.failure_probability === 'number'
+        ? `${(latestRun.failure_probability * 100).toFixed(1)}%`
+        : 'N/A';
+      const latestConfidence = typeof latestRun.confidence === 'number'
+        ? `${(latestRun.confidence * 100).toFixed(1)}%`
+        : 'N/A';
+      const latestRisk = (latestRun.risk_level || 'unknown').toUpperCase();
+      const latestDuration = latestRun.duration_seconds ? `${latestRun.duration_seconds.toFixed(1)}s` : 'N/A';
+      const riskFactorsList = Array.isArray(latestRun.risk_factors) && latestRun.risk_factors.length > 0
+        ? `<ul class="training-history-factors">${latestRun.risk_factors.map(f => `<li>${escapeHtml(f)}</li>`).join('')}</ul>`
+        : '<p class="placeholder">No risk factors captured.</p>';
+      const latestSummary = latestRun.summary ? `<p class="training-history-summary">${escapeHtml(latestRun.summary)}</p>` : '';
+      const latestActions = Array.isArray(latestRun.actions) && latestRun.actions.length > 0
+        ? `<div class="training-history-actions">${latestRun.actions.map(act => `<span>${escapeHtml(act)}</span>`).join('')}</div>`
+        : '';
 
-    const continueRuns = runs.slice(1);
-    const htmlHistory = continueRuns.map(run => {
+      const continueRuns = runs.slice(1);
+      const htmlHistory = continueRuns.map(run => {
         const startedAt = run.started_at ? new Date(run.started_at).toLocaleString() : 'N/A';
         const completedAt = run.completed_at ? new Date(run.completed_at).toLocaleString() : 'N/A';
         const failureProb = typeof run.failure_probability === 'number' ? `${(run.failure_probability * 100).toFixed(1)}%` : 'N/A';
@@ -922,7 +377,7 @@ document.addEventListener("DOMContentLoaded", () => {
         `;
       }).join('');
 
-    trainingHistoryContent.innerHTML = `
+      trainingHistoryContent.innerHTML = `
       <section class="training-history-latest">
         <h3>Latest Trained Model</h3>
         <div class="training-history-latest-grid">
@@ -970,44 +425,70 @@ document.addEventListener("DOMContentLoaded", () => {
 
   window.showTrainingHistory = showTrainingHistory;
 
+  // --- Developer Data Integration ---
+  const settingsBtn = document.getElementById('settingsBtn');
+  const devDataPanel = document.getElementById('devDataPanel');
+  const closeDevPanel = document.getElementById('closeDevPanel');
+  const syncGithubBtn = document.getElementById('syncGithubBtn');
+  const exportDatasetBtn = document.getElementById('exportDatasetBtn');
+  const createIncidentBtn = document.getElementById('createIncidentBtn');
+  const tokenHelpLink = document.getElementById('tokenHelpLink');
+  const tokenHelpModal = document.getElementById('tokenHelpModal');
+  const closeTokenHelp = document.getElementById('closeTokenHelp');
 
-  // Token help modal - only if element exists
-  if (tokenHelpLink) {
-    tokenHelpLink.addEventListener('click', (e) => {
-      e.preventDefault();
-      if (tokenHelpModal) {
-        tokenHelpModal.classList.remove('hidden');
+  // Toggle settings panel (combined single listener)
+  if (settingsBtn && devDataPanel) {
+    settingsBtn.setAttribute("aria-expanded", "false");
+    settingsBtn.addEventListener('click', async () => {
+      const willOpen = devDataPanel.classList.contains('hidden');
+      devDataPanel.classList.toggle('hidden');
+      settingsBtn.setAttribute("aria-expanded", willOpen ? "true" : "false");
+      if (willOpen) {
+        communityPanel?.classList.add('hidden');
+        await loadGitHubSettings();
+        loadDataSummary();
+        devDataPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
+      updateBodyScrollLock();
     });
   }
 
-  if (closeTokenHelp) {
-    closeTokenHelp.addEventListener('click', () => {
-      if (tokenHelpModal) {
-        tokenHelpModal.classList.add('hidden');
-      }
-    });
-  }
+  closeDevPanel?.addEventListener('click', () => {
+    devDataPanel?.classList.add('hidden');
+    settingsBtn?.setAttribute("aria-expanded", "false");
+    updateBodyScrollLock();
+  });
 
-  if (tokenHelpModal) {
-    tokenHelpModal.addEventListener('click', (e) => {
-      if (e.target === tokenHelpModal) {
-        tokenHelpModal.classList.add('hidden');
-      }
-    });
-  }
+  // Token help modal
+  tokenHelpLink?.addEventListener('click', (e) => {
+    e.preventDefault();
+    tokenHelpModal?.classList.remove('hidden');
+    updateBodyScrollLock();
+  });
+
+  closeTokenHelp?.addEventListener('click', () => {
+    tokenHelpModal?.classList.add('hidden');
+    updateBodyScrollLock();
+  });
+
+  tokenHelpModal?.addEventListener('click', (e) => {
+    if (e.target === tokenHelpModal) {
+      tokenHelpModal.classList.add('hidden');
+      updateBodyScrollLock();
+    }
+  });
 
   // Load GitHub settings from database
   async function loadGitHubSettings() {
     try {
       const response = await fetch('/api/github/settings');
       const settings = await response.json();
-      
+
       if (settings.repo_owner && settings.repo_name) {
         document.getElementById('repoOwner').value = settings.repo_owner;
         document.getElementById('repoName').value = settings.repo_name;
       }
-      
+
       // Show token status (masked)
       if (settings.has_token) {
         document.getElementById('githubToken').placeholder = `Token saved: ${settings.github_token || '****'}`;
@@ -1018,7 +499,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Sync GitHub data
-  syncGithubBtn?.addEventListener('click', async () => {
+  syncGithubBtn.addEventListener('click', async () => {
     const repoOwner = document.getElementById('repoOwner').value.trim();
     const repoName = document.getElementById('repoName').value.trim();
     const githubToken = document.getElementById('githubToken').value.trim();
@@ -1037,22 +518,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
       // Save GitHub settings first (including token if provided)
-      const settingsPayload = { 
-        repo_owner: repoOwner, 
+      const settingsPayload = {
+        repo_owner: repoOwner,
         repo_name: repoName
       };
-      
+
       if (githubToken) {
         settingsPayload.github_token = githubToken;
       }
-      
+
       const saveResponse = await fetch('/api/github/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settingsPayload)
       });
       const saveData = await saveResponse.json();
-      
+
       if (!saveData.success) {
         throw new Error('Failed to save settings');
       }
@@ -1089,9 +570,9 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // Export monitoring dataset to GitHub
-  exportDatasetBtn?.addEventListener('click', async () => {
+  exportDatasetBtn.addEventListener('click', async () => {
     const exportStatus = document.getElementById('exportStatus');
-    
+
     exportStatus.className = 'sync-status loading';
     exportStatus.innerHTML = '<i class="ri-loader-4-line ri-spin"></i> Exporting monitoring data to GitHub...';
     exportDatasetBtn.disabled = true;
@@ -1101,9 +582,9 @@ document.addEventListener("DOMContentLoaded", () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
-      
+
       const result = await response.json();
-      
+
       if (result.success) {
         exportStatus.className = 'sync-status success';
         exportStatus.innerHTML = `<i class="ri-checkbox-circle-line"></i> Dataset exported successfully! <br><i class="ri-bar-chart-line"></i> ${result.records_exported} records exported<br><a href="${result.file_url}" target="_blank" style="color: #58A6FF;">View on GitHub</a>`;
@@ -1128,27 +609,45 @@ document.addEventListener("DOMContentLoaded", () => {
         fetch('/api/logs?hours=24&level=error').then(r => r.json())
       ]);
 
-      const commitEl = document.getElementById('commitCount');
-      const issueEl = document.getElementById('issueCount');
-      const incidentEl = document.getElementById('incidentCount');
-      const logEl = document.getElementById('logCount');
+      const commitCountVal = commits.length || 0;
+      const issueCountVal = issues.length || 0;
+      const incidentCountVal = incidents.length || 0;
+      const logCountVal = logs.length || 0;
 
-      // Only update summary UI if those elements exist (dev panel removed)
-      if (commitEl && issueEl && incidentEl && logEl) {
-        commitEl.textContent = commits.length;
-        issueEl.textContent = issues.length;
-        incidentEl.textContent = incidents.length;
-        logEl.textContent = logs.length;
+      document.getElementById('commitCount').textContent = commitCountVal;
+      document.getElementById('issueCount').textContent = issueCountVal;
+      document.getElementById('incidentCount').textContent = incidentCountVal;
+      document.getElementById('logCount').textContent = logCountVal;
 
-        // Display lists when containers present
-        displayCommits(commits);
-        displayIssues(issues);
-        displayIncidents(incidents);
+      // Update Dashboard Overview Card
+      const devOverview = document.getElementById('developerOverview');
+      if (commitCountVal > 0 || issueCountVal > 0) {
+        devOverview.classList.remove('hidden');
+        document.getElementById('overviewCommits').textContent = commitCountVal;
+        document.getElementById('overviewIssues').textContent = issueCountVal;
+        document.getElementById('overviewLog').textContent = logCountVal;
+
+        // Fetch repo info
+        const repoRes = await fetch('/api/github/settings');
+        const settings = await repoRes.json();
+        if (settings.repo_owner && settings.repo_name) {
+          document.getElementById('repoSlug').textContent = `${settings.repo_owner}/${settings.repo_name}`;
+        }
+      } else {
+        devOverview.classList.add('hidden');
       }
+
+      // Display commits
+      displayCommits(commits);
+      // Display issues
+      displayIssues(issues);
+      // Display incidents
+      displayIncidents(incidents);
     } catch (error) {
       console.error('Error loading data summary:', error);
     }
   }
+
 
   // Display commits list
   function displayCommits(commits) {
@@ -1162,9 +661,9 @@ document.addEventListener("DOMContentLoaded", () => {
       const date = new Date(commit.timestamp);
       const timeAgo = getTimeAgo(date);
       const filesHtml = commit.files_changed && commit.files_changed.length > 0
-        ? `<div class="data-item-files">${commit.files_changed.slice(0, 5).map(f => 
-            `<span class="file-tag">${f}</span>`
-          ).join('')}${commit.files_changed.length > 5 ? `<span class="file-tag">+${commit.files_changed.length - 5} more</span>` : ''}</div>`
+        ? `<div class="data-item-files">${commit.files_changed.slice(0, 5).map(f =>
+          `<span class="file-tag">${f}</span>`
+        ).join('')}${commit.files_changed.length > 5 ? `<span class="file-tag">+${commit.files_changed.length - 5} more</span>` : ''}</div>`
         : '';
 
       return `
@@ -1299,12 +798,14 @@ document.addEventListener("DOMContentLoaded", () => {
   if (closeAiModal) {
     closeAiModal.addEventListener('click', () => {
       aiInsightsModal.classList.add('hidden');
+      updateBodyScrollLock();
     });
   }
 
   if (closeTrainingHistory) {
     closeTrainingHistory.addEventListener('click', () => {
       trainingHistoryModal.classList.add('hidden');
+      updateBodyScrollLock();
     });
   }
 
@@ -1313,6 +814,7 @@ document.addEventListener("DOMContentLoaded", () => {
     aiInsightsModal.addEventListener('click', (e) => {
       if (e.target === aiInsightsModal) {
         aiInsightsModal.classList.add('hidden');
+        updateBodyScrollLock();
       }
     });
   }
@@ -1321,6 +823,7 @@ document.addEventListener("DOMContentLoaded", () => {
     trainingHistoryModal.addEventListener('click', (e) => {
       if (e.target === trainingHistoryModal) {
         trainingHistoryModal.classList.add('hidden');
+        updateBodyScrollLock();
       }
     });
   }
@@ -1334,14 +837,14 @@ document.addEventListener("DOMContentLoaded", () => {
         aiButton.style.opacity = '0.5';
         aiButton.style.cursor = 'not-allowed';
       }
-      
+
       // First, check if training is already in progress
       try {
         const checkStatus = await fetch(`http://localhost:5001/training/status/${apiId}`);
         if (checkStatus.ok) {
           const currentStatus = await checkStatus.json();
           if (currentStatus.status === 'training' || currentStatus.status === 'starting' || currentStatus.status === 'analyzing') {
-            alert('⚠️ AI training is already in progress for this API. Please wait for it to complete.');
+            alert('AI training is already in progress for this API. Please wait for it to complete.');
             // Re-enable button
             if (aiButton) {
               aiButton.disabled = false;
@@ -1354,9 +857,10 @@ document.addEventListener("DOMContentLoaded", () => {
       } catch (e) {
         // Service might not be running, continue anyway
       }
-      
+
       aiInsightsModal.classList.remove('hidden');
-      
+      updateBodyScrollLock();
+
       // Show animated training status with progress bar and time estimate
       aiInsightsContent.innerHTML = `
         <div style="text-align: center; padding: 3rem;">
@@ -1364,7 +868,7 @@ document.addEventListener("DOMContentLoaded", () => {
             <div class="training-spinner"></div>
             <div class="spinner-pulse"></div>
           </div>
-          <h3 style="margin-top: 1.5rem; color: #58A6FF;"><i class="ri-brain-line"></i> 🧠 AI Model Training</h3>
+          <h3 style="margin-top: 1.5rem; color: #58A6FF;"><i class="ri-brain-line"></i> AI Model Training</h3>
           <p style="color: #8B949E; margin-top: 0.5rem;">Analyzing historical data and patterns...</p>
           <div id="training-status" style="margin-top: 1rem; color: #58A6FF; font-weight: 600; font-size: 1.1rem;"></div>
           
@@ -1377,7 +881,7 @@ document.addEventListener("DOMContentLoaded", () => {
           </div>
           
           <p style="color: #D29922; font-size: 0.9rem; margin-top: 1.5rem; font-weight: 600;">
-            <i class="ri-time-line"></i> ⏱️ Estimated Time: 2-5 minutes
+            <i class="ri-time-line"></i> Estimated Time: 2-5 minutes
           </p>
           <p style="color: #8B949E; font-size: 0.85rem; margin-top: 0.5rem;">
             <i class="ri-information-line"></i> Training runs on separate service (Port 5001)
@@ -1484,16 +988,16 @@ document.addEventListener("DOMContentLoaded", () => {
       const statusEl = document.getElementById('training-status');
       const progressFill = document.getElementById('training-progress-fill');
       const progressPercentage = document.getElementById('training-percentage');
-      
+
       // Set initial progress immediately
       if (statusEl) statusEl.innerHTML = '<i class="ri-loader-4-line"></i> Preparing training environment...';
       if (progressFill) progressFill.style.width = '5%';
       if (progressPercentage) progressPercentage.textContent = '5%';
-      
+
       // Simulated progress animation (smooth increase while waiting for real updates)
       let simulatedProgress = 5;
       let trainingStarted = false;
-      
+
       const simulateProgress = setInterval(() => {
         if (simulatedProgress < 90 && !progressFill.dataset.realUpdate) {
           // Slow down as we approach higher percentages
@@ -1504,46 +1008,46 @@ document.addEventListener("DOMContentLoaded", () => {
           } else {
             simulatedProgress += 1;
           }
-          
+
           if (progressFill && !progressFill.dataset.realUpdate) {
             progressFill.style.width = simulatedProgress + '%';
             if (progressPercentage) progressPercentage.textContent = simulatedProgress + '%';
           }
         }
       }, 2000); // Update every 2 seconds
-      
+
       // Create a Promise that resolves when training animation is complete
       const trainingPromise = new Promise(async (resolve, reject) => {
         const trainingStartTime = Date.now();
         const MIN_DISPLAY_TIME = 5000; // Minimum 5 seconds to acknowledge training
         let trainingCompleted = false;
         let currentStatus = 'idle';
-        
+
         // Trigger training first
         try {
           console.log('[AI] Triggering training...');
           const trainResponse = await fetch('/api/ai/train', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              api_id: apiId, 
+            body: JSON.stringify({
+              api_id: apiId,
               force_retrain: true
             })
           });
-          
+
           if (!trainResponse.ok) {
             clearInterval(simulateProgress);
             reject(new Error('Training service unavailable'));
             return;
           }
-          
+
           console.log('[AI] Training triggered successfully');
         } catch (error) {
           clearInterval(simulateProgress);
           reject(error);
           return;
         }
-        
+
         // Poll for status
         const pollStatus = setInterval(async () => {
           try {
@@ -1552,41 +1056,41 @@ document.addEventListener("DOMContentLoaded", () => {
               const status = await statusResponse.json();
               const elapsedTime = Date.now() - trainingStartTime;
               currentStatus = status.status || 'idle';
-              
-              console.log(`[AI] Status: ${currentStatus}, Progress: ${progressPercentage.textContent}, Elapsed: ${Math.floor(elapsedTime/1000)}s`);
-              
+
+              console.log(`[AI] Status: ${currentStatus}, Progress: ${progressPercentage.textContent}, Elapsed: ${Math.floor(elapsedTime / 1000)}s`);
+
               if (statusEl && progressFill && progressPercentage) {
                 progressFill.dataset.realUpdate = 'true';
-                
+
                 if (currentStatus === 'starting') {
-                  statusEl.innerHTML = '<i class="ri-loader-4-line"></i> 📊 Loading historical data...';
+                  statusEl.innerHTML = '<i class="ri-loader-4-line"></i> Loading historical data...';
                   progressFill.style.width = '15%';
                   progressPercentage.textContent = '15%';
                 } else if (currentStatus === 'training') {
                   const trainingProgress = Math.min(20 + (elapsedTime / 1000), 75);
                   const progressPercent = Math.floor(trainingProgress);
-                  
+
                   // Show different messages based on progress
                   if (progressPercent < 30) {
-                    statusEl.innerHTML = '<i class="ri-loader-4-line"></i> 🧮 Preparing training dataset...';
+                    statusEl.innerHTML = '<i class="ri-loader-4-line"></i> Preparing training dataset...';
                   } else if (progressPercent < 50) {
-                    statusEl.innerHTML = '<i class="ri-loader-4-line"></i> 🧠 Training LSTM Neural Network...';
+                    statusEl.innerHTML = '<i class="ri-loader-4-line"></i> Training LSTM Neural Network...';
                   } else if (progressPercent < 70) {
-                    statusEl.innerHTML = '<i class="ri-loader-4-line"></i> 🔄 Training Autoencoder Model...';
+                    statusEl.innerHTML = '<i class="ri-loader-4-line"></i> Training Autoencoder Model...';
                   } else {
-                    statusEl.innerHTML = '<i class="ri-loader-4-line"></i> ✅ Validating Model Accuracy...';
+                    statusEl.innerHTML = '<i class="ri-loader-4-line"></i> Validating Model Accuracy...';
                   }
-                  
+
                   progressFill.style.width = progressPercent + '%';
                   progressPercentage.textContent = progressPercent + '%';
                 } else if (currentStatus === 'analyzing') {
-                  statusEl.innerHTML = '<i class="ri-loader-4-line"></i> 📈 Generating AI Predictions...';
+                  statusEl.innerHTML = '<i class="ri-loader-4-line"></i> Generating AI Predictions...';
                   progressFill.style.width = '85%';
                   progressPercentage.textContent = '85%';
                 } else if (currentStatus === 'completed') {
                   trainingCompleted = true;
                   clearInterval(pollStatus);
-                  
+
                   // Immediately jump to 90% if below
                   const currentProgress = parseInt(progressPercentage.textContent) || 80;
                   if (currentProgress < 90) {
@@ -1594,7 +1098,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     progressPercentage.textContent = '90%';
                     statusEl.innerHTML = '<i class="ri-loader-4-line"></i> Finalizing...';
                   }
-                  
+
                   // Fast animate from 90% to 100%
                   const animateToComplete = () => {
                     let progress = 90;
@@ -1604,23 +1108,23 @@ document.addEventListener("DOMContentLoaded", () => {
                         if (progress > 100) progress = 100;
                         progressFill.style.width = progress + '%';
                         progressPercentage.textContent = progress + '%';
-                        
+
                         if (progress >= 95) {
                           statusEl.innerHTML = '<i class="ri-loader-4-line"></i> Almost done...';
                         }
                       } else {
                         clearInterval(animInterval);
                         clearInterval(simulateProgress);
-                        statusEl.innerHTML = '<i class="ri-checkbox-circle-line"></i> ✅ Training Complete!';
+                        statusEl.innerHTML = '<i class="ri-checkbox-circle-line"></i> Training Complete!';
                         progressFill.style.background = 'linear-gradient(90deg, #3FB950, #2ea043)';
                         progressPercentage.style.color = '#3FB950';
-                        
+
                         // Ensure minimum display time
                         const totalElapsed = Date.now() - trainingStartTime;
                         const remainingTime = Math.max(0, MIN_DISPLAY_TIME - totalElapsed);
-                        
-                        console.log(`[AI] Training complete. Total time: ${Math.floor(totalElapsed/1000)}s, Waiting: ${Math.floor(remainingTime/1000)}s more`);
-                        
+
+                        console.log(`[AI] Training complete. Total time: ${Math.floor(totalElapsed / 1000)}s, Waiting: ${Math.floor(remainingTime / 1000)}s more`);
+
                         setTimeout(() => {
                           console.log('[AI] Animation complete, resolving promise');
                           resolve(true);
@@ -1628,19 +1132,19 @@ document.addEventListener("DOMContentLoaded", () => {
                       }
                     }, 100); // Faster interval (100ms instead of 200ms)
                   };
-                  
+
                   // Start animation immediately
                   animateToComplete();
                 } else if (currentStatus === 'error') {
                   clearInterval(pollStatus);
                   clearInterval(simulateProgress);
-                  statusEl.innerHTML = '<i class="ri-alert-line"></i> ❌ Training Error';
+                  statusEl.innerHTML = '<i class="ri-alert-line"></i> Training Error';
                   progressFill.style.background = '#F85149';
                   reject(new Error('Training error'));
                 } else if (currentStatus === 'skipped') {
                   clearInterval(pollStatus);
                   clearInterval(simulateProgress);
-                  statusEl.innerHTML = '<i class="ri-alert-line"></i> ⚠️ Insufficient Data';
+                  statusEl.innerHTML = '<i class="ri-alert-line"></i> Insufficient Data';
                   progressFill.style.background = '#D29922';
                   reject(new Error('Insufficient data'));
                 }
@@ -1650,7 +1154,7 @@ document.addEventListener("DOMContentLoaded", () => {
             console.warn('[AI] Status poll error:', pollError);
           }
         }, 2000);
-        
+
         // Safety timeout
         setTimeout(() => {
           clearInterval(pollStatus);
@@ -1661,7 +1165,7 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         }, 300000); // 5 minutes max
       });
-      
+
       // Wait for training to complete
       console.log('[AI] Waiting for training to complete...');
       try {
@@ -1678,7 +1182,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         return; // Stop here if training failed
       }
-      
+
       // Wait a moment to show completion message
       await new Promise(resolve => setTimeout(resolve, 1000));
 
@@ -1707,7 +1211,7 @@ document.addEventListener("DOMContentLoaded", () => {
       // Calculate next training time based on last training
       const trainingIntervalMinutes = 20; // AI trains every 20 minutes
       let minutesRemaining = trainingIntervalMinutes;
-      
+
       // If prediction has last_trained timestamp, calculate actual remaining time
       if (prediction.last_trained) {
         const lastTrainedTime = new Date(prediction.last_trained);
@@ -1716,7 +1220,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const msRemaining = nextTrainTime - now;
         minutesRemaining = Math.max(0, Math.floor(msRemaining / 1000 / 60));
         const secondsRemaining = Math.max(0, Math.floor((msRemaining / 1000) % 60));
-        
+
         html += `
           <div class="next-training-card">
             <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
@@ -1805,10 +1309,10 @@ document.addEventListener("DOMContentLoaded", () => {
             </div>
             ${latestTraining.summary ? `<p class="training-run-summary">${escapeHtml(latestTraining.summary)}</p>` : ''}
             ${latestTraining.actions && latestTraining.actions.length
-              ? `<div class="training-run-actions">
+            ? `<div class="training-run-actions">
                    ${latestTraining.actions.map(action => `<span>${escapeHtml(action)}</span>`).join('')} 
                  </div>`
-              : ''}
+            : ''}
           </div>
         `;
       }
@@ -1981,7 +1485,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       aiInsightsContent.innerHTML = html;
-      
+
       // Re-enable the AI Prediction button after results are shown
       if (aiButton) {
         aiButton.disabled = false;
@@ -2012,22 +1516,22 @@ document.addEventListener("DOMContentLoaded", () => {
     const updateTimer = () => {
       const now = new Date();
       const msRemaining = targetTime - now;
-      
+
       if (msRemaining <= 0) {
         countdownEl.textContent = '00:00';
         countdownEl.style.color = '#3FB950';
         countdownEl.parentElement.querySelector('div:last-child').textContent = 'Training now...';
         return;
       }
-      
+
       const totalSeconds = Math.floor(msRemaining / 1000);
       const mins = Math.floor(totalSeconds / 60);
       const secs = totalSeconds % 60;
       countdownEl.textContent = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-      
+
       setTimeout(updateTimer, 1000);
     };
-    
+
     updateTimer();
   }
 
@@ -2072,7 +1576,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Store active timer intervals
   const activeTimers = {};
-  
+
   // Prevent duplicate fetchMonitors calls
   let fetchMonitorsTimeout = null;
   const debouncedFetchMonitors = () => {
@@ -2100,7 +1604,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (lastAiTraining) {
       const lastTrainedTime = new Date(lastAiTraining);
-      
+
       // Validate date
       if (isNaN(lastTrainedTime.getTime())) {
         console.error(`[Timer] Invalid date for API ${apiId}:`, lastAiTraining);
@@ -2108,31 +1612,31 @@ document.addEventListener("DOMContentLoaded", () => {
         timerEl.style.color = '#8B949E';
         return;
       }
-      
+
       const nextTrainTime = new Date(lastTrainedTime.getTime() + trainingIntervalMinutes * 60 * 1000);
-      
+
       // Start countdown for this specific timer using setInterval
       const updateTimer = () => {
         const now = new Date();
         const msRemaining = nextTrainTime - now;
-        
+
         if (msRemaining <= 0) {
           timerEl.textContent = '00:00';
           timerEl.style.color = '#3FB950';
-          
+
           // Clear interval
           if (activeTimers[apiId]) {
             clearInterval(activeTimers[apiId]);
             delete activeTimers[apiId];
           }
-          
+
           // Auto-trigger FULL training when timer reaches 00:00
           console.log(`[Timer] Auto-training (FULL) triggered for API ${apiId}`);
           fetch('/api/ai/train', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              api_id: apiId, 
+            body: JSON.stringify({
+              api_id: apiId,
               force_retrain: true
             })
           }).then(response => {
@@ -2144,19 +1648,19 @@ document.addEventListener("DOMContentLoaded", () => {
           }).catch(error => {
             console.error(`[Timer] Auto-training failed for API ${apiId}:`, error);
           });
-          
+
           return;
         }
-        
+
         const totalSeconds = Math.floor(msRemaining / 1000);
         const mins = Math.floor(totalSeconds / 60);
         const secs = totalSeconds % 60;
         timerEl.textContent = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
       };
-      
+
       // Initial update
       updateTimer();
-      
+
       // Set interval and store it
       activeTimers[apiId] = setInterval(updateTimer, 1000);
     } else {
@@ -2175,49 +1679,55 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const response = await fetch(`/api/alert-status/${apiId}`);
       if (!response.ok) {
-        // Just show monitoring active if endpoint fails
-        statusDiv.innerHTML = '<div style="color: #58A6FF;"><i class="ri-brain-line"></i> 🤖 AI Monitoring Active</div>';
+        statusDiv.innerHTML = '<div style="color: #58A6FF;"><i class="ri-brain-line"></i> AI monitoring active</div>';
         return;
       }
 
       const data = await response.json();
       let html = '';
 
-      // Show downtime alert status
       if (data.downtime_alert) {
         const alert = data.downtime_alert;
-        html += `<div style="color: #F85149; margin-bottom: 0.25rem;">
-          🚨 Alert sent ${getTimeAgo(alert.created_at)}
+        html += `<div style="color: #EF4444; margin-bottom: 0.25rem;">
+          <i class="ri-alarm-warning-line"></i> Downtime alert ${getTimeAgo(alert.created_at)}
           ${alert.github_issue_url ? `<a href="${alert.github_issue_url}" target="_blank" style="color: #58A6FF;">#${alert.github_issue_number}</a>` : ''}
         </div>`;
       }
 
-      // Show AI prediction status
       if (data.ai_prediction) {
         const pred = data.ai_prediction;
-        const probability = (pred.failure_probability * 100).toFixed(0);
+        const probability = (Number(pred.failure_probability || 0) * 100).toFixed(0);
         const timeAgo = getTimeAgo(pred.last_check);
-        
-        if (probability >= 70) {
-          html += `<div style="color: #F85149; margin-bottom: 0.25rem;">
-            <i class="ri-brain-line"></i> 🤖 AI Alert: ${probability}% failure risk (${timeAgo})
-            ${pred.github_issue_url ? `<a href="${pred.github_issue_url}" target="_blank" style="color: #58A6FF;">#${pred.github_issue_number}</a>` : ''}
-          </div>`;
-        } else {
-          html += `<div style="color: #3FB950;">
-            <i class="ri-brain-line"></i> 🤖 AI Status: ${probability}% risk - Healthy (${timeAgo})
-          </div>`;
-        }
-      } else {
-        // No AI prediction yet
-        if (!data.downtime_alert) {
-          html += '<div style="color: #58A6FF;"><i class="ri-brain-line"></i> 🤖 AI Monitoring Active</div>'
-        }
+        const highRisk = Number(probability) >= 70;
+
+        html += `<div style="color: ${highRisk ? '#EF4444' : '#16A34A'}; margin-bottom: 0.25rem;">
+          <i class="ri-brain-line"></i> AI risk ${probability}% (${timeAgo})
+          ${pred.github_issue_url ? `<a href="${pred.github_issue_url}" target="_blank" style="color: #58A6FF;">#${pred.github_issue_number}</a>` : ''}
+        </div>`;
       }
 
-      statusDiv.innerHTML = html || '<div style="color: #58A6FF;"><i class="ri-brain-line"></i> 🤖 AI Monitoring Active</div>';
+      if (data.burn_rate_alert) {
+        const burn = data.burn_rate_alert;
+        const sev = (burn.severity || 'warning').toLowerCase();
+        const color = sev === 'critical' ? '#EF4444' : '#F59E0B';
+        html += `<div style="color: ${color}; margin-bottom: 0.25rem;">
+          <i class="ri-fire-line"></i> Burn-rate ${sev.toUpperCase()} (1h ${burn.burn_rate_1h || 0}x, 6h ${burn.burn_rate_6h || 0}x)
+        </div>`;
+      }
+
+      if (data.incident_status && data.incident_status.status === 'open') {
+        const inc = data.incident_status;
+        html += `<div style="color: #8B949E;">
+          <i class="ri-stack-line"></i> Incident grouped: ${inc.failure_events || 0} failures, ${inc.suppressed_alerts || 0} suppressed
+        </div>`;
+      }
+
+      if (!html) {
+        html = '<div style="color: #58A6FF;"><i class="ri-brain-line"></i> AI monitoring active</div>';
+      }
+
+      statusDiv.innerHTML = html;
     } catch (error) {
-      // Silently fail and show monitoring active
       statusDiv.innerHTML = '<div style="color: #58A6FF;"><i class="ri-brain-line"></i> AI monitoring active</div>';
     }
   }
@@ -2225,10 +1735,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // Helper function to get time ago
   function getTimeAgo(timestamp) {
     if (!timestamp) return 'recently';
-    
+
     const now = new Date();
     let then;
-    
+
     // Handle different timestamp formats
     if (typeof timestamp === 'string') {
       if (timestamp.includes('Z') || timestamp.includes('+')) {
@@ -2248,34 +1758,155 @@ document.addEventListener("DOMContentLoaded", () => {
       // Unknown format
       return 'recently';
     }
-    
+
     const diffMs = now - then;
     const diffMins = Math.floor(diffMs / 60000);
-    
+
     // Handle negative time (future timestamps due to timezone issues)
     if (diffMins < 0) return 'just now';
-    
+
     if (diffMins < 1) return 'just now';
     if (diffMins < 60) return `${diffMins} min${diffMins > 1 ? 's' : ''} ago`;
-    
+
     const diffHours = Math.floor(diffMins / 60);
     if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-    
+
     const diffDays = Math.floor(diffHours / 24);
     return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
   }
 
   window.loadAlertStatus = loadAlertStatus;
 
-  // (Removed) Create incident handler from old Developer panel
+  // Create incident
+  createIncidentBtn.addEventListener('click', async () => {
+    const title = document.getElementById('incidentTitle').value.trim();
+    const summary = document.getElementById('incidentSummary').value.trim();
+    const severity = document.getElementById('incidentSeverity').value;
+    const rootCause = document.getElementById('incidentRootCause').value.trim();
+    const fix = document.getElementById('incidentFix').value.trim();
+
+    if (!title || !summary) {
+      alert('Please fill in title and summary');
+      return;
+    }
+
+    createIncidentBtn.disabled = true;
+
+    try {
+      const response = await fetch('/api/incidents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          summary,
+          severity,
+          root_cause: rootCause,
+          fix_applied: fix,
+          start_time: new Date().toISOString(),
+          created_by: 'Dashboard User'
+        })
+      });
+
+      if (response.ok) {
+        alert('Incident created successfully!');
+        document.getElementById('incidentTitle').value = '';
+        document.getElementById('incidentSummary').value = '';
+        document.getElementById('incidentRootCause').value = '';
+        document.getElementById('incidentFix').value = '';
+        loadDataSummary();
+      } else {
+        throw new Error('Failed to create incident');
+      }
+    } catch (error) {
+      alert(`Error: ${error.message}`);
+    } finally {
+      createIncidentBtn.disabled = false;
+    }
+  });
 
   // --- Utility Functions ---
   const formatLatency = (ms) =>
     ms === null || ms === undefined ? "N/A" : `${ms.toFixed(2)} ms`;
 
+  const formatPercent = (value) =>
+    value === null || value === undefined || Number.isNaN(Number(value))
+      ? "N/A"
+      : `${Number(value).toFixed(2)}%`;
+
+  async function loadAuthStatus() {
+    if (!authBtn) return;
+    try {
+      const response = await fetch('/auth/me');
+      if (!response.ok) return;
+      const data = await response.json();
+      if (data.authenticated) {
+        currentSubscription = {
+          plan: data.user?.subscription_plan || 'free',
+          features: data.user?.subscription_features || {},
+        };
+        authBtn.innerHTML = '<i class="ri-logout-box-r-line" aria-hidden="true"></i> Sign Out';
+        authBtn.href = '#';
+        authBtn.onclick = async (event) => {
+          event.preventDefault();
+          await fetch('/auth/logout', { method: 'POST' });
+          window.location.href = '/auth';
+        };
+      } else {
+        currentSubscription = {
+          plan: 'free',
+          features: {
+            premium_frequency_locked: true,
+            community_communication_enabled: false
+          }
+        };
+        authBtn.innerHTML = '<i class="ri-shield-user-line" aria-hidden="true"></i> Sign In';
+        authBtn.href = '/auth';
+        authBtn.onclick = null;
+      }
+      applySubscriptionUI();
+    } catch (error) {
+      currentSubscription = {
+        plan: 'free',
+        features: {
+          premium_frequency_locked: true,
+          community_communication_enabled: false
+        }
+      };
+      authBtn.href = '/auth';
+      authBtn.onclick = null;
+      applySubscriptionUI();
+    }
+  }
+
+  async function loadSloSummary() {
+    if (!sloTotalMonitors || !sloAvgUptime || !sloAvgBudget || !sloBurnAlerts) return;
+    try {
+      const response = await fetch('/api/advanced/slo_summary');
+      if (!response.ok) throw new Error(`SLO summary status: ${response.status}`);
+      const summary = await response.json();
+      const warning = Number(summary.warning_burn_rate || 0);
+      const critical = Number(summary.critical_burn_rate || 0);
+      sloTotalMonitors.textContent = String(summary.total_monitors ?? 0);
+      sloAvgUptime.textContent = formatPercent(summary.avg_uptime_pct_24h);
+      sloAvgBudget.textContent = formatPercent(summary.avg_error_budget_remaining_pct);
+      sloBurnAlerts.innerHTML = `${critical} critical, ${warning} warning`;
+    } catch (error) {
+      sloTotalMonitors.textContent = 'N/A';
+      sloAvgUptime.textContent = 'N/A';
+      sloAvgBudget.textContent = 'N/A';
+      sloBurnAlerts.textContent = 'N/A';
+    }
+  }
+
+  function renderBurnBadge(level) {
+    const safe = (level || 'none').toLowerCase();
+    const icon = safe === 'critical' ? 'ri-fire-fill' : 'ri-fire-line';
+    return `<span class="burn-badge ${safe}"><i class="${icon}"></i> ${safe.toUpperCase()}</span>`;
+  }
+
   // --- Core Functions ---
   async function fetchMonitors() {
-    renderSkeletonList();
+    monitorListDiv.innerHTML = '<p class="placeholder">Loading monitors...</p>';
     try {
       // Add a cache-busting parameter to ensure fresh data
       const response = await fetch(
@@ -2286,64 +1917,27 @@ document.addEventListener("DOMContentLoaded", () => {
         throw new Error(`Server responded with status: ${response.status}`);
       }
       const monitors = await response.json();
-      console.log('Fetched healthcare monitors:', monitors);
       latestMonitors = monitors;
       updateTestSelect(monitors);
       renderMonitorList(monitors);
-      updateHealthcareStats(); // Update healthcare-specific stats
-      
-      // Auto-populate API checkboxes if settings panel is open
-      if (!settingsPanel?.classList.contains('hidden')) {
-        populateApiCheckboxes();
-      }
+      loadSloSummary();
+      loadAuthStatus();
     } catch (error) {
       console.error("Fetch Monitors Error:", error);
       monitorListDiv.innerHTML =
-        '<div class="error-placeholder"><i class="ri-error-warning-line"></i> Failed to load healthcare monitors. Check server connection and API routes.</div>';
+        '<p class="placeholder error">Failed to load monitors. Check server connection and API routes.</p>';
     }
-  }
-
-  function renderSkeletonList() {
-    const skeletonItem = `
-      <div class="monitor-item skeleton-card">
-        <div class="monitor-info">
-          <div class="skeleton skeleton-title"></div>
-          <div class="skeleton skeleton-subtitle"></div>
-          <div class="skeleton skeleton-badges"></div>
-        </div>
-        <div class="monitor-stats">
-          <div class="skeleton skeleton-sparkline"></div>
-          <div class="monitor-stats-row">
-            <div class="skeleton skeleton-stat"></div>
-            <div class="skeleton skeleton-stat"></div>
-          </div>
-        </div>
-        <div class="monitor-status-container">
-          <div class="skeleton skeleton-status"></div>
-        </div>
-      </div>
-    `;
-    monitorListDiv.innerHTML = Array(3).fill(skeletonItem).join('');
   }
 
   async function handleFormSubmit(e) {
     e.preventDefault();
     const editId = apiEditId.value;
-    const urlVal = document.getElementById("apiUrl").value;
-    const categoryVal = document.getElementById("apiCategory").value;
-    const checkIntervalVal = Number(document.getElementById("checkInterval").value || 30);
     const payload = {
-      api_name: document.getElementById("apiName").value,
-      url: urlVal,
-      category: categoryVal,
-      priority: document.getElementById("apiPriority").value,
-      impact_score: Number(document.getElementById("impactScore").value || 0),
-      emergency_contact: document.getElementById("apiContact").value,
-      fallback_url: document.getElementById("fallbackUrl").value,
-      check_interval: checkIntervalVal,
-      check_frequency_minutes: Math.max(0.5, checkIntervalVal / 60),
+      url: document.getElementById("apiUrl").value,
+      category: document.getElementById("apiCategory").value,
       header_name: document.getElementById("apiHeaderName").value,
       header_value: document.getElementById("apiHeaderValue").value,
+      check_frequency_minutes: Number(document.getElementById("apiFrequency").value),
       notification_email: document.getElementById("apiEmail").value,
     };
     const url = editId
@@ -2373,19 +1967,19 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!confirm('Are you sure you want to delete this monitor?')) {
       return;
     }
-    
+
     try {
       const response = await fetch('/api/advanced/delete_monitor', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: apiId })
       });
-      
+
       if (!response.ok) {
         const err = await response.json();
         throw new Error(err.error || 'Failed to delete monitor.');
       }
-      
+
       fetchMonitors();
     } catch (error) {
       alert(`Error: ${error.message}`);
@@ -2396,28 +1990,28 @@ document.addEventListener("DOMContentLoaded", () => {
   window.deleteMonitor = deleteMonitor;
 
   // --- Render Functions ---
-    function renderMonitorList(monitors) {
-      if (!monitors || monitors.length === 0) {
-        monitorListDiv.innerHTML =
-          '<p class="placeholder">No APIs are being monitored. Add one to get started!</p>';
-        return;
-      }
-      // Group by category
-      const categorized = monitors.reduce((acc, m) => {
-        const category = m.category || "Uncategorized";
-        if (!acc[category]) acc[category] = [];
-        acc[category].push(m);
-        return acc;
-      }, {});
-  
-      // Sort categories, putting "Uncategorized" last
-      const sortedCategories = Object.keys(categorized).sort((a, b) => {
-          if (a === 'Uncategorized') return 1;
-          if (b === 'Uncategorized') return -1;
-          return a.localeCompare(b);
-      });
-  
-      monitorListDiv.innerHTML = sortedCategories.map(category => `
+  function renderMonitorList(monitors) {
+    if (!monitors || monitors.length === 0) {
+      monitorListDiv.innerHTML =
+        '<p class="placeholder">No APIs are being monitored. Add one to get started!</p>';
+      return;
+    }
+    // Group by category
+    const categorized = monitors.reduce((acc, m) => {
+      const category = m.category || "Uncategorized";
+      if (!acc[category]) acc[category] = [];
+      acc[category].push(m);
+      return acc;
+    }, {});
+
+    // Sort categories, putting "Uncategorized" last
+    const sortedCategories = Object.keys(categorized).sort((a, b) => {
+      if (a === 'Uncategorized') return 1;
+      if (b === 'Uncategorized') return -1;
+      return a.localeCompare(b);
+    });
+
+    monitorListDiv.innerHTML = sortedCategories.map(category => `
           <div class="category-group">
               <h3>${category}</h3>
               <div class="monitor-list">
@@ -2425,88 +2019,104 @@ document.addEventListener("DOMContentLoaded", () => {
               </div>
           </div>
       `).join('');
-      
-      // Load alert status and training timer for each monitor
-      monitors.forEach(monitor => {
-        loadAlertStatus(monitor.id);
-        loadTrainingTimer(monitor.id, monitor.last_ai_training);
-      });
+
+    // Load alert status and training timer for each monitor
+    monitors.forEach(monitor => {
+      loadAlertStatus(monitor.id);
+      loadTrainingTimer(monitor.id, monitor.last_ai_training);
+    });
+  }
+
+  function getStatusMeta(statusValue) {
+    const rawStatus = (statusValue || "Pending").toString().trim();
+    const normalized = rawStatus
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+
+    if (normalized === "network-down" || normalized === "low-network") {
+      return { label: "Low Network", className: "status-low-network" };
     }
-  
-    function renderMonitorItem(monitor) {
-      const statusClass = `status-${(monitor.last_status || 'pending').toLowerCase()}`;
-      const uptime = monitor.uptime_pct_24h || 0;
-      const latency = monitor.avg_latency_24h || 0;
-      const priority = monitor.priority || 'medium';
-      const impactScore = monitor.impact_score || 50;
-      
-      // Debug: Log status to help troubleshoot
-      if (monitor.last_status && monitor.last_status.toLowerCase() !== 'up') {
-        console.log(`API: ${monitor.url}, Status: "${monitor.last_status}", Type: ${typeof monitor.last_status}`);
-      }
-  
-      const sparklineHtml = (monitor.recent_checks || []).map(check => {
-          const barClass = check.is_up ? 'sparkline-bar-up' : 'sparkline-bar-down';
-          const tooltipText = `${check.is_up ? 'Up' : 'Down'} at ${new Date(check.timestamp).toLocaleString()}`;
-          return `<div class="${barClass}" style="height: ${check.is_up ? '100%' : '100%'};" data-tooltip="${tooltipText}"></div>`;
-      }).join('');
-  
-      const apiName = monitor.api_name || monitor.name || monitor.url;
-      const category = monitor.category || 'Uncategorized';
-      
-      return `
-          <div class="monitor-item priority-${priority}" data-id="${monitor.id}">
+
+    return {
+      label: rawStatus || "Pending",
+      className: `status-${normalized || "pending"}`
+    };
+  }
+
+  function renderMonitorItem(monitor) {
+    const statusMeta = getStatusMeta(monitor.last_status);
+    const uptime = Number(monitor.uptime_pct_24h || 0);
+    const latency = Number(monitor.avg_latency_24h || 0);
+    const p95Latency = Number(monitor.p95_latency_24h || 0);
+    const budgetRemaining = Number(monitor.error_budget_remaining_pct || 0);
+    const burnLevel = (monitor.burn_rate_alert_level || "none").toLowerCase();
+    const rootCauseHint = (monitor.last_root_cause_hint || "unknown").toUpperCase();
+
+    const sparklineHtml = (monitor.recent_checks || []).map(check => {
+      const barClass = check.is_up ? 'sparkline-bar-up' : 'sparkline-bar-down';
+      const tooltipText = `${check.is_up ? 'Up' : 'Down'} at ${new Date(check.timestamp).toLocaleString()}`;
+      return `<div class="${barClass}" style="height: 100%;" data-tooltip="${tooltipText}"></div>`;
+    }).join('');
+
+    return `
+          <div class="monitor-item" data-id="${monitor.id}">
               <div class="monitor-info">
-                  <strong class="monitor-url">${apiName}</strong>
-                  <small class="monitor-category">${category}</small>
-                  <div class="monitor-meta">
-                      <span class="priority-badge priority-${priority}">${priority.toUpperCase()}</span>
-                      <span class="impact-score">Impact: ${impactScore}</span>
+                  <div class="monitor-url-container">
+                    <span class="status-indicator ${statusMeta.className}"></span>
+                    <strong class="monitor-url">${monitor.url}</strong>
                   </div>
-                  <div id="training-timer-${monitor.id}" class="training-timer-inline" style="margin-top: 0.5rem;">
-                      <i class="ri-brain-line" style="color: #58A6FF;"></i>
-                      <span style="color: #8B949E; font-size: 0.75rem;">🤖 AI Auto-Training:</span>
-                      <strong id="timer-${monitor.id}" style="color: #58A6FF; font-family: 'Courier New', monospace; font-size: 0.875rem;">--:--</strong>
-                  </div>
-              </div>
-              <div class="monitor-stats">
-                  <div class="sparkline-container" title="Last 15 checks">${sparklineHtml.length > 0 ? sparklineHtml : '<div class="sparkline-empty">No recent data</div>'}</div>
-                  <div class="monitor-stats-row">
-                      <div class="stat-item">
-                          <small>Uptime (24h)</small>
-                          <strong>${uptime.toFixed(2)}%</strong>
-                      </div>
-                      <div class="stat-item">
-                          <small>Avg Latency</small>
-                          <strong>${latency.toFixed(2)} ms</strong>
-                      </div>
+                  <div class="monitor-meta-tags">
+                    <span class="monitor-category"><i class="ri-folder-line"></i> ${monitor.category || 'Uncategorized'}</span>
+                    <div id="training-timer-${monitor.id}" class="training-timer-inline">
+                        <i class="ri-brain-line"></i>
+                        <span id="timer-${monitor.id}" class="timer-value">--:--</span>
+                    </div>
                   </div>
               </div>
-              <div class="monitor-status-container">
-                  <span class="status ${statusClass}">${monitor.last_status || 'Pending'}</span>
-                  <button class="button-ai-insights" onclick="loadAIInsights('${monitor.id}')"><i class="ri-brain-line"></i> 🧠 AI Prediction</button>
-                  <button class="button-secondary" onclick="showTrainingHistory('${monitor.id}')"><i class="ri-history-line"></i> Training History</button>
+              
+              <div class="monitor-stats-grid">
+                  <div class="stat-group">
+                    <div class="stat-item">
+                        <small><i class="ri-heart-pulse-line"></i> Uptime</small>
+                        <strong class="${uptime > 99 ? 'status-up-text' : 'status-warn-text'}">${uptime.toFixed(2)}%</strong>
+                    </div>
+                    <div class="stat-item">
+                        <small><i class="ri-speed-line"></i> Latency</small>
+                        <strong>${latency.toFixed(0)}<span class="unit">ms</span></strong>
+                    </div>
+                  </div>
+                  <div class="sparkline-wrapper">
+                    <div class="sparkline-container" title="Last 15 checks">${sparklineHtml.length > 0 ? sparklineHtml : '<div class="sparkline-empty">No data</div>'}</div>
+                    <div class="root-cause-tag">${rootCauseHint}</div>
+                  </div>
+              </div>
+
+              <div class="monitor-actions-container">
+                  <div class="status-badge-container">
+                    <span class="status-label ${statusMeta.className}">${statusMeta.label}</span>
+                    ${burnLevel !== 'none' ? renderBurnBadge(burnLevel) : ''}
+                  </div>
+                  <div class="action-buttons">
+                    <button class="button-ai-insights" onclick="event.stopPropagation(); loadAIInsights('${monitor.id}')" title="AI Prediction">
+                      <i class="ri-magic-line"></i> <span>AI Analyze</span>
+                    </button>
+                    <button class="button-icon-small" onclick="event.stopPropagation(); showTrainingHistory('${monitor.id}')" title="Training History">
+                      <i class="ri-history-line"></i>
+                    </button>
+                  </div>
                   <div id="alert-status-${monitor.id}" class="auto-alert-status">
-                      <div style="color: #8B949E; font-size: 0.75rem;">🤖 AI Alert: Loading...</div>
+                      <i class="ri-brain-line"></i> AI Active
                   </div>
               </div>
           </div>
       `;
-    }
+  }
 
   async function showDetailsView(apiId) {
-    console.log('showDetailsView called with API ID:', apiId);
-    console.log('mainView element:', mainView);
-    console.log('detailsView element:', detailsView);
-    
-    if (!mainView || !detailsView) {
-      console.error('mainView or detailsView element not found!');
-      return;
-    }
-    
     mainView.classList.add("hidden");
     detailsView.classList.remove("hidden");
-    detailsView.innerHTML = '<div class="loading-placeholder"><i class="ri-loader-4-line ri-spin"></i> Loading details...</div>';
+    detailsView.innerHTML = '<p class="placeholder">Loading details...</p>';
 
     try {
       const [monitorRes, historyRes] = await Promise.all([
@@ -2517,11 +2127,11 @@ document.addEventListener("DOMContentLoaded", () => {
       ]);
       // MongoDB returns string IDs, so compare as strings
       const monitor = monitorRes.find((m) => m.id === apiId || m.id === String(apiId));
-      
+
       if (!monitor) {
         throw new Error(`Monitor with ID ${apiId} not found`);
       }
-      
+
       renderDetails(
         monitor,
         historyRes.history,
@@ -2537,6 +2147,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
   function renderDetails(monitor, history, totalPages, currentPage) {
     const latest = history[0] || {};
+    const statusMeta = getStatusMeta(monitor.last_status);
+    const uptime24h = Number(monitor.uptime_pct_24h || 0);
+    const p95 = Number(monitor.p95_latency_24h || 0);
+    const errorBudget = Number(monitor.error_budget_remaining_pct || 0);
+    const burn1h = Number(monitor.burn_rate_1h || 0);
+    const burn6h = Number(monitor.burn_rate_6h || 0);
+    const burnLevel = (monitor.burn_rate_alert_level || "none").toUpperCase();
+    const rootCauseHint = (monitor.last_root_cause_hint || latest.root_cause_hint || "unknown").toUpperCase();
+    const rootCauseDetails = monitor.last_root_cause_details || latest.root_cause_details || "Not available";
     let certCardHtml = "<p>N/A (Not an HTTPS site or check failed)</p>";
     if (latest.tls_cert_subject) {
       const expiresDate = new Date(latest.tls_cert_valid_until);
@@ -2545,139 +2164,88 @@ document.addEventListener("DOMContentLoaded", () => {
         <div class="cert-details">
             <p><strong>Subject:</strong> ${latest.tls_cert_subject}</p>
             <p><strong>Issuer:</strong> ${latest.tls_cert_issuer}</p>
-            <p><strong>Expiry:</strong> <span class="${
-              isExpired ? "status-down" : ""
-            }">${expiresDate.toLocaleDateString()}</span></p>
+            <p><strong>Expiry:</strong> <span class="${isExpired ? "status-down" : ""
+        }">${expiresDate.toLocaleDateString()}</span></p>
         </div>`;
     }
 
-    const apiName = monitor.api_name || monitor.name || monitor.url;
-    const priority = monitor.priority || 'medium';
-    const impactScore = monitor.impact_score || 50;
-    const category = monitor.category || 'Uncategorized';
-    const emergencyContact = monitor.emergency_contact || 'N/A';
-    const fallbackUrl = monitor.fallback_url || 'N/A';
-
     detailsView.innerHTML = `
         <header class="details-header">
-            <div>
-                <button id="backBtn" class="button-secondary">&larr; Back to List</button>
-                <h2>${apiName}</h2>
-                <p><strong>Category:</strong> ${category} | <strong>Priority:</strong> ${priority.toUpperCase()} | <strong>Impact Score:</strong> ${impactScore}</p>
+            <div class="details-header-info">
+                <button id="backBtn" class="button-secondary"><i class="ri-arrow-left-line"></i> Back to List</button>
+                <h2>${monitor.url}</h2>
+                <div class="details-meta">
+                   <span><i class="ri-link"></i> ${latest.url_type || "N/A"}</span>
+                   <span><i class="ri-folder-line"></i> ${monitor.category || "Uncategorized"}</span>
+                </div>
             </div>
             <div class="header-actions">
-                <button class="button-secondary edit-btn" data-id="${monitor.id}">Edit</button>
-                <button class="button-secondary delete-btn" data-id="${monitor.id}">Delete</button>
+                <button class="button-secondary edit-btn" data-id="${monitor.id
+      }">Edit</button>
+                <button class="button-secondary delete-btn" data-id="${monitor.id
+      }">Delete</button>
             </div>
         </header>
         <div class="details-grid">
-            <div class="metric-card"><h4>Current Status</h4><p class="status-${(monitor.last_status || 'pending').toLowerCase()}">${monitor.last_status || 'Pending'}</p></div>
-            <div class="metric-card"><h4>Avg. Latency (24h)</h4><p>${formatLatency(monitor.avg_latency_24h || 0)}</p></div>
-            <div class="metric-card"><h4>Uptime (24h)</h4><p>${(monitor.uptime_pct_24h || 0).toFixed(2)} %</p></div>
-            <div class="metric-card"><h4>Priority Level</h4><p><span class="priority-badge priority-${priority}">${priority.toUpperCase()}</span></p></div>
-            <div class="metric-card"><h4>Impact Score</h4><p>${impactScore}/100</p></div>
-            <div class="metric-card"><h4>Emergency Contact</h4><p>${emergencyContact}</p></div>
-        </div>
-        
-        <div class="details-section">
-            <h3>API Information</h3>
-            <div class="info-grid">
-                <div class="info-item">
-                    <strong>API URL:</strong>
-                    <p><a href="${monitor.url}" target="_blank">${monitor.url}</a></p>
-                </div>
-                <div class="info-item">
-                    <strong>Category:</strong>
-                    <p>${category}</p>
-                </div>
-                <div class="info-item">
-                    <strong>Priority:</strong>
-                    <p><span class="priority-badge priority-${priority}">${priority.toUpperCase()}</span></p>
-                </div>
-                <div class="info-item">
-                    <strong>Impact Score:</strong>
-                    <p>${impactScore}/100</p>
-                </div>
-                <div class="info-item">
-                    <strong>Emergency Contact:</strong>
-                    <p>${emergencyContact}</p>
-                </div>
-                <div class="info-item">
-                    <strong>Fallback URL:</strong>
-                    <p>${fallbackUrl !== 'N/A' ? `<a href="${fallbackUrl}" target="_blank">${fallbackUrl}</a>` : 'N/A'}</p>
-                </div>
-                <div class="info-item">
-                    <strong>Check Interval:</strong>
-                    <p>${monitor.check_interval || 30} seconds</p>
-                </div>
-                <div class="info-item">
-                    <strong>Last Check:</strong>
-                    <p>${monitor.last_check ? new Date(monitor.last_check).toLocaleString() : 'Never'}</p>
-                </div>
-            </div>
-        </div>
-
-        <div class="details-section">
-            <h3>SSL/TLS Certificate</h3>
-            <div class="cert-card">
+            <div class="metric-card"><h4>Current Status</h4><p class="${statusMeta.className}">${statusMeta.label}</p></div>
+            <div class="metric-card"><h4>Avg. Latency (24h)</h4><p>${formatLatency(
+        monitor.avg_latency_24h
+      )}</p></div>
+            <div class="metric-card"><h4>P95 Latency (24h)</h4><p>${formatLatency(
+        p95
+      )}</p></div>
+            <div class="metric-card"><h4>Uptime (24h)</h4><p>${uptime24h.toFixed(
+        2
+      )} %</p></div>
+            <div class="metric-card"><h4>Error Budget Remaining</h4><p>${errorBudget.toFixed(2)}%</p></div>
+            <div class="metric-card"><h4>Burn Rate</h4><p>${burn1h.toFixed(2)}x (1h) / ${burn6h.toFixed(2)}x (6h) <span class="burn-badge ${burnLevel.toLowerCase()}">${burnLevel}</span></p></div>
+            <div class="metric-card"><h4>Root-Cause Hint</h4><p>${rootCauseHint}</p><small>${rootCauseDetails}</small></div>
+            <div class="metric-card large-card">
+                <h4>Certificate</h4>
                 ${certCardHtml}
             </div>
         </div>
-
-        <div class="details-section">
-            <h3>Recent Check History</h3>
-            <div class="history-table-container">
-                <table class="history-table">
-                    <thead>
-                        <tr>
-                            <th>Timestamp</th>
-                            <th>Status</th>
-                            <th>Response Time</th>
-                            <th>Error</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${history.map(h => `
-                            <tr class="status-${h.is_up ? 'up' : 'down'}">
-                                <td>${new Date(h.timestamp).toLocaleString()}</td>
-                                <td>${h.is_up ? 'UP' : 'DOWN'}</td>
-                                <td>${h.response_time ? h.response_time.toFixed(2) + ' ms' : 'N/A'}</td>
-                                <td>${h.error || 'None'}</td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            </div>
-        </div>
+        <h3>Latency History</h3>
+        <div class="chart-container-large"><canvas id="detailLatencyChart"></canvas></div>
+        <h3>Check History</h3>
+        <table class="history-log-table">
+            <thead><tr><th>Timestamp</th><th>Status</th><th>Latency</th><th>Root Cause</th><th>Details</th></tr></thead>
+            <tbody id="historyLogBody"></tbody>
+        </table>
+        <div id="historyPagination" class="pagination-controls"></div>
     `;
+    renderHistoryChart(history);
+    renderHistoryTable(history);
+    renderPagination(monitor.id, totalPages, currentPage);
   }
 
   function renderHistoryTable(history) {
     const tableBody = document.getElementById("historyLogBody");
     if (!history || history.length === 0) {
       tableBody.innerHTML =
-        '<tr><td colspan="4" class="placeholder">No history yet.</td></tr>';
+        '<tr><td colspan="5" class="placeholder">No history yet.</td></tr>';
       return;
     }
     tableBody.innerHTML = history
-      .map(
-        (h) => `
+      .map((h) => {
+        const isLowNetwork = h.check_skipped === true || h.skip_reason === "network_unavailable";
+        const rowStatus = isLowNetwork ? "LOW NETWORK" : (h.status_code || "ERR");
+        const indicatorClass = isLowNetwork ? "low-network" : (h.is_up ? "up" : "down");
+        const rootHint = (h.root_cause_hint || (isLowNetwork ? "network" : "unknown")).toUpperCase();
+        return `
             <tr>
                 <td>${new Date(h.timestamp).toLocaleString()}</td>
-                <td><span class="status-indicator status-${
-                  h.is_up ? "up" : "down"
-                }"></span> ${h.status_code || "ERR"}</td>
-                <td>${
-                  h.total_latency_ms
-                    ? `${h.total_latency_ms.toFixed(2)} ms`
-                    : "N/A"
-                }</td>
-                <td><button class="report-btn" data-log-id="${
-                  h.id
-                }">View Full Report</button></td>
+                <td><span class="status-indicator status-${indicatorClass}"></span> ${rowStatus}</td>
+                <td>${h.total_latency_ms
+            ? `${h.total_latency_ms.toFixed(2)} ms`
+            : "N/A"
+          }</td>
+                <td>${rootHint}</td>
+                <td><button class="report-btn" data-log-id="${h.id
+          }">View Full Report</button></td>
             </tr>
-        `
-      )
+        `;
+      })
       .join("");
   }
 
@@ -2687,11 +2255,11 @@ document.addEventListener("DOMContentLoaded", () => {
       controls.innerHTML = "";
       return;
     }
-    
+
     // Generate smart pagination with ellipsis
     let pages = [];
     const delta = 2; // Number of pages to show around current page
-    
+
     for (let i = 1; i <= totalPages; i++) {
       if (
         i === 1 || // Always show first page
@@ -2703,14 +2271,14 @@ document.addEventListener("DOMContentLoaded", () => {
         pages.push('...');
       }
     }
-    
+
     const buttons = pages.map(page => {
       if (page === '...') {
         return '<span class="pagination-ellipsis">...</span>';
       }
       return `<button data-page="${page}" class="${page === currentPage ? 'active' : ''}">${page}</button>`;
     }).join('');
-    
+
     controls.innerHTML = `
       <button data-page="${currentPage - 1}" ${currentPage === 1 ? 'disabled' : ''}>
         <i class="ri-arrow-left-s-line"></i> Previous
@@ -2720,7 +2288,7 @@ document.addEventListener("DOMContentLoaded", () => {
         Next <i class="ri-arrow-right-s-line"></i>
       </button>
     `;
-    
+
     controls
       .querySelectorAll("button[data-page]")
       .forEach((btn) =>
@@ -2851,6 +2419,7 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
       `;
       reportModal.classList.remove("hidden");
+      updateBodyScrollLock();
     } catch (error) {
       alert(`Error: ${error.message}`);
     }
@@ -2859,6 +2428,17 @@ document.addEventListener("DOMContentLoaded", () => {
   function renderHistoryChart(history) {
     const ctx = document.getElementById("detailLatencyChart").getContext("2d");
     const reversedHistory = [...history].reverse();
+    const activeTheme = document.documentElement.getAttribute("data-theme") || "dark";
+    const isLight = activeTheme === "light";
+    const chartColors = {
+      line: isLight ? "#1f6ff0" : "#58A6FF",
+      fill: isLight ? "rgba(31, 111, 240, 0.12)" : "rgba(88, 166, 255, 0.1)",
+      tick: isLight ? "#526789" : "#8B949E",
+      grid: isLight ? "rgba(77, 105, 152, 0.22)" : "#30363D",
+      tooltipBg: isLight ? "#ffffff" : "#161B22",
+      tooltipText: isLight ? "#182844" : "#E6EDF3",
+      pointBorder: isLight ? "#ffffff" : "#0D1117",
+    };
     if (detailChart) detailChart.destroy();
     detailChart = new Chart(ctx, {
       type: "line",
@@ -2870,15 +2450,15 @@ document.addEventListener("DOMContentLoaded", () => {
           {
             label: "Latency (ms)",
             data: reversedHistory.map((h) => h.total_latency_ms || 0),
-            borderColor: "#58A6FF",
-            backgroundColor: "rgba(88, 166, 255, 0.1)",
+            borderColor: chartColors.line,
+            backgroundColor: chartColors.fill,
             fill: true,
             tension: 0.4,
             pointRadius: reversedHistory.map((h) => (h.is_up ? 3 : 5)),
             pointBackgroundColor: reversedHistory.map((h) =>
               h.is_up ? "#238636" : "#DA3633"
             ),
-            pointBorderColor: "#0D1117",
+            pointBorderColor: chartColors.pointBorder,
             pointHoverRadius: 7,
           },
         ],
@@ -2889,18 +2469,20 @@ document.addEventListener("DOMContentLoaded", () => {
         scales: {
           y: {
             beginAtZero: true,
-            ticks: { color: "#8B949E", font: { weight: "600" } },
-            grid: { color: "#30363D" },
+            ticks: { color: chartColors.tick, font: { weight: "600" } },
+            grid: { color: chartColors.grid },
           },
           x: {
-            ticks: { color: "#8B949E", font: { weight: "600" } },
-            grid: { color: "#30363D" },
+            ticks: { color: chartColors.tick, font: { weight: "600" } },
+            grid: { color: chartColors.grid },
           },
         },
         plugins: {
           legend: { display: false },
           tooltip: {
-            backgroundColor: "#161B22",
+            backgroundColor: chartColors.tooltipBg,
+            titleColor: chartColors.tooltipText,
+            bodyColor: chartColors.tooltipText,
             titleFont: { size: 14, weight: "bold" },
             bodyFont: { size: 12 },
             padding: 10,
@@ -2949,114 +2531,60 @@ document.addEventListener("DOMContentLoaded", () => {
     return String(num);
   }
 
-  async function openAddApiModal(monitor = null) {
-    const modalTitle = document.getElementById('modalTitle');
-    const submitBtn = document.getElementById('modalSubmitBtn');
-
+  function openModal(monitor = null) {
+    addApiForm.reset();
     if (monitor) {
-      modalTitle.textContent = 'Edit API';
-      document.getElementById('apiEditId').value = monitor.id || '';
-      document.getElementById('apiUrl').value = monitor.url || '';
-      document.getElementById('apiName').value = monitor.api_name || monitor.name || '';
-      document.getElementById('apiCategory').value = monitor.category || '';
-      document.getElementById('apiPriority').value = monitor.priority || 'medium';
-      document.getElementById('apiImpactScore').value = monitor.impact_score ?? 50;
-      document.getElementById('apiEmergencyContact').value = monitor.emergency_contact || '';
-      document.getElementById('apiFallbackUrl').value = monitor.fallback_url || '';
-      document.getElementById('apiCheckInterval').value = monitor.check_interval || 30;
-      submitBtn.textContent = 'Save Changes';
+      modalTitle.textContent = "Edit Monitor";
+      modalSubmitBtn.textContent = "Save Changes";
+      apiEditId.value = monitor.id;
+      document.getElementById("apiUrl").value = monitor.url;
+      document.getElementById("apiCategory").value = monitor.category || "";
+      document.getElementById("apiHeaderName").value = monitor.header_name || "";
+      document.getElementById("apiHeaderValue").value = monitor.header_value || "";
+      document.getElementById("apiFrequency").value = normalizeFrequencyValue(monitor.check_frequency_minutes);
+      document.getElementById("apiEmail").value = monitor.notification_email || "";
     } else {
-      modalTitle.textContent = 'Add API';
-      document.getElementById('apiEditId').value = '';
-      document.getElementById('addApiForm').reset();
-      document.getElementById('apiPriority').value = 'medium';
-      document.getElementById('apiImpactScore').value = 50;
-      document.getElementById('apiCheckInterval').value = 30;
-      submitBtn.textContent = 'Add Monitor';
+      modalTitle.textContent = "Add New Monitor";
+      modalSubmitBtn.textContent = "Add Monitor";
+      apiEditId.value = "";
     }
-    openModal('addApiModal');
+    addApiModal.classList.remove("hidden");
+    updateBodyScrollLock();
   }
 
-  async function handleAddApi(event) {
-    event?.preventDefault();
-    const editId = document.getElementById('apiEditId').value;
-    const url = document.getElementById('apiUrl').value.trim();
-    const name = document.getElementById('apiName').value.trim();
-    const category = document.getElementById('apiCategory').value.trim();
-    const priority = document.getElementById('apiPriority').value;
-    const impactScore = Number(document.getElementById('apiImpactScore').value || 50);
-    const emergencyContact = document.getElementById('apiEmergencyContact').value.trim() || undefined;
-    const fallbackUrl = document.getElementById('apiFallbackUrl').value.trim() || undefined;
-    const checkInterval = Number(document.getElementById('apiCheckInterval').value || 60);
-
-    if (!url) { showToast('API URL is required', 'error'); return; }
-    if (!name) { showToast('API Name is required', 'error'); return; }
-
-    const payload = {
-      url,
-      api_name: name,
-      category,
-      priority,
-      impact_score: impactScore,
-      emergency_contact: emergencyContact,
-      fallback_url: fallbackUrl,
-      check_interval: checkInterval,
-      check_frequency_minutes: Math.max(0.5, checkInterval / 60)
-    };
-
-    if (editId) {
-      payload.id = editId;
-    }
-
-    const endpoint = editId ? '/api/advanced/update_monitor' : '/api/advanced/add_monitor';
-
-    try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        const errorPayload = await response.json().catch(() => ({}));
-        throw new Error(errorPayload.error || 'Failed to save API');
-      }
-
-      closeModal('addApiModal');
-      showToast(editId ? 'API updated successfully' : 'API added successfully', 'success');
-      fetchMonitors();
-    } catch (error) {
-      console.error('Error saving API:', error);
-      showToast(error.message || 'Failed to save API', 'error');
-    }
+  function closeModal() {
+    addApiModal.classList.add("hidden");
+    updateBodyScrollLock();
   }
 
-  // Delete API
-  async function handleDeleteApi(monitorId) {
-    if (!confirm('Are you sure you want to delete this API monitor?')) return;
-    try {
-      const response = await fetch('/api/advanced/delete_monitor', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: monitorId })
-      });
+  function closeReportModal() {
+    reportModal.classList.add("hidden");
+    updateBodyScrollLock();
+  }
 
-      if (!response.ok) {
-        const errorPayload = await response.json().catch(() => ({}));
-        throw new Error(errorPayload.error || 'Failed to delete API');
-      }
+  // --- Event Listeners ---
+  addApiBtn.addEventListener("click", () => openModal());
+  cancelBtn.addEventListener("click", closeModal);
+  addApiModal.addEventListener("click", (e) => e.target === addApiModal && closeModal());
+  reportModal.addEventListener("click", (e) => e.target === reportModal && closeReportModal());
+  addApiForm.addEventListener("submit", handleFormSubmit);
 
-      showToast('API deleted successfully', 'success');
-      if (document.getElementById('detailsView').classList.contains('hidden')) {
-        fetchMonitors();
-      } else {
-        showMainView();
-        fetchMonitors();
-      }
-    } catch (error) {
-      console.error('Error deleting API:', error);
-      showToast(error.message || 'Failed to delete API', 'error');
+  monitorListDiv.addEventListener("click", (e) => {
+    const item = e.target.closest(".monitor-item");
+    if (item) {
+      showDetailsView(item.dataset.id);
     }
+  });
+
+  const tooltip = document.getElementById('tooltip');
+
+  function showTooltip(e) {
+    const text = e.target.dataset.tooltip;
+    if (!text) return;
+    tooltip.textContent = text;
+    tooltip.classList.remove('hidden');
+    tooltip.classList.add('visible');
+    moveTooltip(e);
   }
 
   function hideTooltip() {
@@ -3069,300 +2597,95 @@ document.addEventListener("DOMContentLoaded", () => {
     tooltip.style.top = `${e.clientY + 15}px`;
   }
 
-  monitorListDiv?.addEventListener('mouseover', e => {
+  monitorListDiv.addEventListener('mouseover', e => {
     if (e.target.matches('.sparkline-bar-up, .sparkline-bar-down')) {
       showTooltip(e);
     }
   });
 
-  monitorListDiv?.addEventListener('mouseout', e => {
+  monitorListDiv.addEventListener('mouseout', e => {
     if (e.target.matches('.sparkline-bar-up, .sparkline-bar-down')) {
       hideTooltip();
     }
   });
 
-  monitorListDiv?.addEventListener('mousemove', e => {
+  monitorListDiv.addEventListener('mousemove', e => {
     if (e.target.matches('.sparkline-bar-up, .sparkline-bar-down')) {
       moveTooltip(e);
     }
   });
 
-  monitorListDiv?.addEventListener('click', e => {
-    const monitorItem = e.target.closest('.monitor-item');
-    if (monitorItem) {
-      const apiId = monitorItem.dataset.id;
-      showDetailsView(apiId);
-    }
-  });
-
-  // Modal controls
-function openModal(modalId) {
-  const modal = document.getElementById(modalId);
-  if (modal) {
-    modal.classList.remove('hidden');
-    document.body.style.overflow = 'hidden';
-  }
-}
-
-function closeModal(modalId) {
-  const modal = document.getElementById(modalId);
-  if (modal) {
-    modal.classList.add('hidden');
-    document.body.style.overflow = '';
-  }
-}
-
-async function showDetailsView(apiId) {
-  mainView.classList.add("hidden");
-  detailsView.classList.remove("hidden");
-  detailsView.innerHTML = '<div class="loading-placeholder"><i class="ri-loader-4-line ri-spin"></i> Loading details...</div>';
-
-  detailsView.addEventListener("click", (e) => {
+  detailsView.addEventListener("click", async (e) => {
     const backBtn = e.target.closest("#backBtn");
+    const editBtn = e.target.closest(".edit-btn");
+    const deleteBtn = e.target.closest(".delete-btn");
+    const reportBtn = e.target.closest(".report-btn");
+
     if (backBtn) {
       detailsView.classList.add("hidden");
       mainView.classList.remove("hidden");
       fetchMonitors();
+    } else if (editBtn) {
+      // MongoDB uses string IDs
+      const apiId = editBtn.dataset.id;
+      const res = await fetch(`/api/advanced/monitors?_=${new Date().getTime()}`);
+      const monitors = await res.json();
+      const monitorToEdit = monitors.find(m => m.id === apiId);
+      openModal(monitorToEdit);
+    } else if (deleteBtn) {
+      // MongoDB uses string IDs
+      const apiId = deleteBtn.dataset.id;
+      if (confirm("Are you sure you want to delete this monitor? This action cannot be undone.")) {
+        await fetch("/api/advanced/delete_monitor", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: apiId }),
+        });
+        detailsView.classList.add("hidden");
+        mainView.classList.remove("hidden");
+        fetchMonitors();
+      }
+    } else if (reportBtn) {
+      // Log IDs are also strings in MongoDB
+      showReport(reportBtn.dataset.logId);
     }
   });
 
-  try {
-    const [monitorRes, historyRes] = await Promise.all([
-      fetch(`/api/advanced/monitors?_=${new Date().getTime()}`).then((res) =>
-        res.json()
-      ),
-      fetch(`/api/advanced/history?id=${apiId}`).then((res) => res.json()),
-    ]);
-    const monitor = monitorRes.find((m) => m.id === apiId || m.id === String(apiId));
-
-    if (!monitor) {
-      throw new Error(`Monitor with ID ${apiId} not found`);
+  document.body.addEventListener("click", (e) => {
+    if (e.target.id === "closeReportBtn") {
+      closeReportModal();
     }
+  });
 
-    renderDetails(
-      monitor,
-      historyRes.history,
-      historyRes.total_pages,
-      historyRes.current_page
-    );
-  } catch (error) {
-    console.error("Error showing details view:", error);
-    detailsView.innerHTML =
-      '<p class="placeholder error">Failed to load details.</p>';
-  }
-}
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
 
-// Add API button
-document.getElementById('addApiBtn')?.addEventListener('click', () => openAddApiModal());
+    if (tokenHelpModal && !tokenHelpModal.classList.contains("hidden")) {
+      tokenHelpModal.classList.add("hidden");
+    } else if (workerResponsesModal && !workerResponsesModal.classList.contains("hidden")) {
+      workerResponsesModal.classList.add("hidden");
+    } else if (alertPreviewModal && !alertPreviewModal.classList.contains("hidden")) {
+      alertPreviewModal.classList.add("hidden");
+    } else if (trainingHistoryModal && !trainingHistoryModal.classList.contains("hidden")) {
+      trainingHistoryModal.classList.add("hidden");
+    } else if (aiInsightsModal && !aiInsightsModal.classList.contains("hidden")) {
+      aiInsightsModal.classList.add("hidden");
+    } else if (reportModal && !reportModal.classList.contains("hidden")) {
+      reportModal.classList.add("hidden");
+    } else if (addApiModal && !addApiModal.classList.contains("hidden")) {
+      addApiModal.classList.add("hidden");
+    } else if (communityPanel && !communityPanel.classList.contains("hidden")) {
+      communityPanel.classList.add("hidden");
+    } else if (devDataPanel && !devDataPanel.classList.contains("hidden")) {
+      devDataPanel.classList.add("hidden");
+      settingsBtn?.setAttribute("aria-expanded", "false");
+    }
+    updateBodyScrollLock();
+  });
 
-// Settings button
-document.getElementById('settingsBtn')?.addEventListener('click', () => {
-  openModal('settingsPanel');
-});
-
-// Close handlers
-document.getElementById('closeSettingsPanel')?.addEventListener('click', () => {
-  closeModal('settingsPanel');
-});
-
-document.getElementById('cancelBtn')?.addEventListener('click', () => closeModal('addApiModal'));
-
-document.getElementById('modalCloseBtn')?.addEventListener('click', () => closeModal('addApiModal'));
-
-document.getElementById('closeWarRoom')?.addEventListener('click', () => {
-  closeModal('warRoomModal');
-});
-
-// Add API Modal form submission
-document.getElementById('addApiForm')?.addEventListener('submit', handleAddApi);
-
-// War Room button (if exists)
-document.getElementById('warRoomBtn')?.addEventListener('click', () => {
-  openModal('warRoomModal');
-});
-
-// Details view event handlers
-detailsView?.addEventListener("click", async (e) => {
-  const backBtn = e.target.closest("#backBtn");
-  const editBtn = e.target.closest(".edit-btn");
-  const deleteBtn = e.target.closest(".delete-btn");
-  const reportBtn = e.target.closest(".report-btn");
-
-  if (backBtn) {
-    detailsView.classList.add("hidden");
-    mainView.classList.remove("hidden");
-    fetchMonitors();
-  } else if (editBtn) {
-    // MongoDB uses string IDs
-    const apiId = editBtn.dataset.id;
-    const res = await fetch(`/api/advanced/monitors?_=${new Date().getTime()}`);
-    const monitors = await res.json();
-    const monitorToEdit = monitors.find(m => m.id === apiId);
-    openAddApiModal(monitorToEdit);
-  } else if (deleteBtn) {
-    // MongoDB uses string IDs
-    const apiId = deleteBtn.dataset.id;
-    await handleDeleteApi(apiId);
-  } else if (reportBtn) {
-    // Log IDs are also strings in MongoDB
-    showReport(reportBtn.dataset.logId);
-  }
-});
-
-document.body?.addEventListener("click", (e) => {
-  if (e.target.id === "closeReportBtn") {
-    closeReportModal();
-  }
-});
-
-function renderDetails(monitor, history, totalPages, currentPage) {
-  const latest = history[0] || {};
-  let certCardHtml = "<p>N/A (Not an HTTPS site or check failed)</p>";
-  if (latest.tls_cert_subject) {
-    const expiresDate = new Date(latest.tls_cert_valid_until);
-    const isExpired = expiresDate < new Date();
-    certCardHtml = `
-      <div class="cert-details">
-          <p><strong>Subject:</strong> ${latest.tls_cert_subject}</p>
-          <p><strong>Issuer:</strong> ${latest.tls_cert_issuer}</p>
-          <p><strong>Expiry:</strong> <span class="${isExpired ? "status-down" : ""}">${expiresDate.toLocaleDateString()}</span></p>
-      </div>`;
-  }
-
-  const apiName = monitor.api_name || monitor.name || monitor.url;
-  const priority = monitor.priority || 'medium';
-  const impactScore = monitor.impact_score || 50;
-  const category = monitor.category || 'Uncategorized';
-  const emergencyContact = monitor.emergency_contact || 'N/A';
-  const fallbackUrl = monitor.fallback_url || 'N/A';
-
-  detailsView.innerHTML = `
-    <div class="details-wrapper">
-      <header class="details-header">
-        <div>
-          <button id="backBtn" class="button-secondary">&larr; Back to List</button>
-          <h2>${apiName}</h2>
-          <p class="details-subtitle">${monitor.description || 'Healthcare API Monitor'}</p>
-          <div class="details-meta">
-            <span class="details-badge category">${category}</span>
-            <span class="details-badge priority">${priority.toUpperCase()}</span>
-            <span class="details-badge impact">Impact ${impactScore}/100</span>
-          </div>
-        </div>
-        <div class="header-actions">
-          <button class="button-secondary edit-btn" data-id="${monitor.id}">Edit</button>
-          <button class="button-secondary delete-btn" data-id="${monitor.id}">Delete</button>
-        </div>
-      </header>
-
-      <div class="details-metrics">
-        <div class="metric-card">
-          <div class="metric-label">Current Status</div>
-          <div class="metric-value status-${(monitor.last_status || 'pending').toLowerCase()}">${monitor.last_status || 'Pending'}</div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-label">Avg. Latency (24h)</div>
-          <div class="metric-value">${(monitor.avg_latency_24h || 0).toFixed(2)} ms</div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-label">Uptime (24h)</div>
-          <div class="metric-value">${(monitor.uptime_pct_24h || 0).toFixed(2)}%</div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-label">Priority Level</div>
-          <div class="metric-value"><span class="priority-badge priority-${priority}">${priority.toUpperCase()}</span></div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-label">Impact Score</div>
-          <div class="metric-value">${impactScore}</div>
-        </div>
-        <div class="metric-card">
-          <div class="metric-label">Emergency Contact</div>
-          <div class="metric-value" style="font-size:1rem;">${emergencyContact}</div>
-        </div>
-      </div>
-
-      <div class="details-section">
-          <h3>API Information</h3>
-          <div class="info-grid">
-              <div class="info-item">
-                  <strong>API URL:</strong>
-                  <p><a href="${monitor.url}" target="_blank">${monitor.url}</a></p>
-              </div>
-              <div class="info-item">
-                  <strong>Category:</strong>
-                  <p>${category}</p>
-              </div>
-              <div class="info-item">
-                  <strong>Priority:</strong>
-                  <p><span class="priority-badge priority-${priority}">${priority.toUpperCase()}</span></p>
-              </div>
-              <div class="info-item">
-                  <strong>Impact Score:</strong>
-                  <p>${impactScore}/100</p>
-              </div>
-              <div class="info-item">
-                  <strong>Emergency Contact:</strong>
-                  <p>${emergencyContact}</p>
-              </div>
-              <div class="info-item">
-                  <strong>Fallback URL:</strong>
-                  <p>${fallbackUrl !== 'N/A' ? `<a href="${fallbackUrl}" target="_blank">${fallbackUrl}</a>` : 'N/A'}</p>
-              </div>
-              <div class="info-item">
-                  <strong>Check Interval:</strong>
-                  <p>${monitor.check_interval || 30} seconds</p>
-              </div>
-              <div class="info-item">
-                  <strong>Last Check:</strong>
-                  <p>${monitor.last_check ? new Date(monitor.last_check).toLocaleString() : 'Never'}</p>
-              </div>
-          </div>
-      </div>
-
-      <div class="details-section">
-          <h3>SSL/TLS Certificate</h3>
-          <div class="cert-card">
-              ${certCardHtml}
-          </div>
-      </div>
-
-      <div class="details-section">
-          <h3>Recent Check History</h3>
-          <div class="history-table-container">
-              <table class="history-table">
-                  <thead>
-                      <tr>
-                          <th>Timestamp</th>
-                          <th>Status</th>
-                          <th>Response Time</th>
-                          <th>Error</th>
-                      </tr>
-                  </thead>
-                  <tbody>
-                      ${history.map(h => `
-                          <tr class="status-${h.is_up ? 'up' : 'down'}">
-                              <td>${new Date(h.timestamp).toLocaleString()}</td>
-                              <td>${h.is_up ? 'UP' : 'DOWN'}</td>
-                              <td>${h.response_time ? h.response_time.toFixed(2) + ' ms' : 'N/A'}</td>
-                              <td>${h.error || 'None'}</td>
-                          </tr>
-                      `).join('')}
-                  </tbody>
-              </table>
-          </div>
-      </div>
-    </div>
-  `;
-}
-
-// --- Initial Load ---
-
-// Initialize theme
-const savedTheme = localStorage.getItem('theme') || 'light';
-applyTheme(savedTheme);
-
-fetchMonitors();
+  // --- Initial Load ---
+  updateBodyScrollLock();
+  fetchMonitors();
 
   // Auto-refresh every 1 minute (60000 ms)
   let refreshCount = 0;
@@ -3371,7 +2694,7 @@ fetchMonitors();
     console.log(`[Auto-refresh #${refreshCount}] Updating monitor status...`);
     fetchMonitors();
   }, 60000);
-  
+
   // Show last refresh time in console
   console.log('[Auto-refresh] Enabled - Updates every 60 seconds');
 });

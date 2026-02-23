@@ -1,27 +1,25 @@
-"""
-Quick test to verify the GitHub alert endpoint exists
-"""
+import os
+import pytest
 import requests
 
-# Test if endpoint is registered
-try:
+BASE_URL = os.getenv("API_MONITOR_BASE_URL", "http://localhost:5000")
+
+
+def _require_server():
+    try:
+        requests.get(f"{BASE_URL}/monitored_urls", timeout=3)
+    except requests.RequestException:
+        pytest.skip(f"API monitor server not reachable at {BASE_URL}")
+
+
+def test_downtime_alert_endpoint_returns_json():
+    _require_server()
+
     response = requests.post(
-        'http://localhost:5000/api/github/create-downtime-alert',
-        json={'api_id': 'test123'},
-        timeout=5
+        f"{BASE_URL}/api/github/create-downtime-alert",
+        json={"api_id": "test123"},
+        timeout=10,
     )
-    
-    print(f"Status Code: {response.status_code}")
-    print(f"Content-Type: {response.headers.get('content-type')}")
-    print(f"Response: {response.text[:200]}")
-    
-    if 'application/json' in response.headers.get('content-type', ''):
-        print(f"JSON: {response.json()}")
-    else:
-        print("ERROR: Response is not JSON!")
-        print(f"Full response:\n{response.text}")
-        
-except requests.exceptions.ConnectionError:
-    print("ERROR: Cannot connect to Flask server. Is it running on port 5000?")
-except Exception as e:
-    print(f"ERROR: {e}")
+
+    assert "application/json" in response.headers.get("content-type", "")
+    assert response.status_code in (200, 400, 404, 500)
