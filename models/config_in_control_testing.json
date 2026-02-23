@@ -1,1 +1,1 @@
-{"category": "In control Testing", "sequence_length": 20, "n_features": 10, "accuracy": 0.8571428656578064, "auc": 0.9375, "trained": true, "last_trained": "2025-11-23T17:46:32.024953"}
+{"category": "In control Testing", "sequence_length": 20, "n_features": 10, "accuracy": 0.34285715222358704, "auc": 0.21367520093917847, "trained": true, "last_trained": "2025-11-20T10:31:01.147284"}

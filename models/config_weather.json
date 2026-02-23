@@ -1,1 +1,1 @@
-{"category": "Weather", "sequence_length": 20, "n_features": 10, "accuracy": 0.8571428656578064, "auc": 1.0, "trained": true, "last_trained": "2025-11-23T17:47:52.805017"}
+{"category": "Weather", "sequence_length": 20, "n_features": 10, "accuracy": 1.0, "auc": 0.0, "trained": true, "ml_ready": true, "last_trained": "2026-02-23T01:17:00.228922", "anomaly_threshold": 2.0251680612564087}

@@ -19,8 +19,8 @@ A comprehensive API monitoring system with AI-powered predictive analytics and a
 - Closes issue on recovery (3 consecutive successes)
 
 **System 2: AI Predictive Alerts**
-- Trains every 15 minutes
-- Predicts failures (>70% risk)
+- Trains every 20 minutes
+- Predicts failures (>=40% risk)
 - Creates warning GitHub issues
 - LSTM + Autoencoder neural networks
 

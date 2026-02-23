@@ -1,6 +1,6 @@
 """
 AI-Based Predictive Alert Manager
-Trains model every 15 minutes and creates alerts for high failure predictions
+Trains model every 20 minutes and creates alerts for medium/high failure predictions
 """
 
 from datetime import datetime, timedelta
@@ -13,9 +13,19 @@ class AIAlertManager:
     def __init__(self, mongo_db):
         self.db = mongo_db
         self.ai_predictor = AIPredictor(mongo_db)
-        self.prediction_threshold = 0.7  # 70% probability of failure triggers alert
+        self.prediction_threshold = 0.4  # Medium/high risk threshold
         self.last_training_time = {}  # Track last training time per API
         self.training_interval_minutes = 20  # Changed from 15 to 20 minutes
+
+    def _api_owner_id(self, api_id):
+        try:
+            from bson import ObjectId
+            api_doc = self.db.monitored_apis.find_one({"_id": ObjectId(api_id)}, {"user_id": 1})
+            if api_doc and api_doc.get("user_id"):
+                return api_doc.get("user_id")
+        except Exception:
+            pass
+        return "default_user"
         
     def should_train_model(self, api_id):
         """Check if it's time to train the model for this API"""
@@ -39,7 +49,9 @@ class AIAlertManager:
         
         # Get historical data for training
         historical_logs = list(self.db.monitoring_logs.find({
-            "api_id": api_id
+            "api_id": api_id,
+            "user_id": self._api_owner_id(api_id),
+            "check_skipped": {"$ne": True}
         }).sort("timestamp", -1).limit(1000))
         
         if len(historical_logs) < 50:
@@ -68,6 +80,7 @@ class AIAlertManager:
             # Check if we already have an open AI prediction alert
             existing_alert = self.db.alert_history.find_one({
                 "api_id": api_id,
+                "user_id": self._api_owner_id(api_id),
                 "status": "open",
                 "alert_type": "ai_prediction"
             })
@@ -96,7 +109,8 @@ class AIAlertManager:
         """Create GitHub issue for AI prediction of high failure probability"""
         
         # Get GitHub settings
-        settings = self.db.github_settings.find_one({"user_id": "default_user"})
+        owner_id = self._api_owner_id(api_id)
+        settings = self.db.github_settings.find_one({"user_id": owner_id})
         if not settings:
             print("[AI Alert] GitHub settings not configured")
             return None
@@ -188,6 +202,7 @@ This is a **predictive alert** - the API may not be down yet, but the AI model p
             # Store in alert history
             self.db.alert_history.insert_one({
                 "api_id": api_id,
+                "user_id": owner_id,
                 "alert_type": "ai_prediction",
                 "status": "open",
                 "github_issue_number": issue["number"],
@@ -217,6 +232,7 @@ This is a **predictive alert** - the API may not be down yet, but the AI model p
         # Check for open AI prediction alert
         open_alert = self.db.alert_history.find_one({
             "api_id": api_id,
+            "user_id": self._api_owner_id(api_id),
             "status": "open",
             "alert_type": "ai_prediction"
         })
@@ -226,14 +242,16 @@ This is a **predictive alert** - the API may not be down yet, but the AI model p
         
         # Check if API is stable (last 10 checks all successful)
         recent_logs = list(self.db.monitoring_logs.find({
-            "api_id": api_id
+            "api_id": api_id,
+            "user_id": self._api_owner_id(api_id),
+            "check_skipped": {"$ne": True}
         }).sort("timestamp", -1).limit(10))
         
         all_up = all(log.get("is_up", False) for log in recent_logs)
         
         if all_up and len(recent_logs) >= 10:
             # Close the prediction alert
-            settings = self.db.github_settings.find_one({"user_id": "default_user"})
+            settings = self.db.github_settings.find_one({"user_id": self._api_owner_id(api_id)})
             if not settings:
                 return None
             
@@ -300,3 +318,17 @@ The AI prediction alert is being closed as the API is performing normally.
             return self.create_ai_prediction_alert(api_id, api_url, prediction_data)
         
         return None
+
+    def check_and_alert_single_api(self, api_id):
+        """
+        Backward-compatible wrapper for older call sites that only pass api_id.
+        """
+        api_url = "Unknown API"
+        try:
+            from bson import ObjectId
+            api_doc = self.db.monitored_apis.find_one({"_id": ObjectId(api_id)})
+            if api_doc:
+                api_url = api_doc.get("url", "Unknown API")
+        except Exception:
+            pass
+        return self.check_and_alert(api_id, api_url)

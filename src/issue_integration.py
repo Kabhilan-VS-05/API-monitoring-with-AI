@@ -5,20 +5,13 @@ Fetches issues from GitHub or Jira
 
 import requests
 from datetime import datetime
-try:
-    from security_manager import decrypt_if_needed
-except Exception:
-    from typing import Any
-    def decrypt_if_needed(value: Any) -> Any:
-        return value
 
 class IssueIntegration:
     def __init__(self, token, mongo_db):
-        # Allow encrypted token storage; decrypt if necessary
-        self.token = decrypt_if_needed(token)
+        self.token = token
         self.db = mongo_db
         self.headers = {
-            "Authorization": f"token {self.token}",
+            "Authorization": f"token {token}",
             "Accept": "application/vnd.github.v3+json"
         }
         self.base_url = "https://api.github.com"
@@ -129,6 +122,8 @@ class IssueIntegration:
 
 - **Status Code:** {downtime_data.get('status_code', 'N/A')}
 - **Error Message:** {downtime_data.get('error_message', 'Connection failed')}
+- **Root-Cause Hint:** {downtime_data.get('root_cause_hint', 'unknown')}
+- **Root-Cause Details:** {downtime_data.get('root_cause_details', 'Not available')}
 - **Response Time:** {downtime_data.get('total_latency_ms', 'N/A')} ms
 - **URL Type:** {downtime_data.get('url_type', 'Unknown')}
 

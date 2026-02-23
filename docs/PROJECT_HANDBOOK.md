@@ -173,7 +173,7 @@ Troubleshooting:
 | `src/ai_training_service.py` | Dedicated training server, progress callbacks. |
 | `src/ai_predictor.py` | Category-aware predictor, model training & inference. |
 | `static_advanced/monitor.js` | Advanced dashboard logic, AI modal, polling. |
-| `templates/advanced_monitor.html` | Dashboard layout. |
+| `static_advanced/monitor.html` | Dashboard layout. |
 | `models/` | Persisted TensorFlow models & scalers per category. |
 | `logs/` | Runtime logs and GitHub sync logs. |
 

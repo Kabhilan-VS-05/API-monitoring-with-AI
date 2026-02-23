@@ -16,116 +16,162 @@ import json
 import math
 import io
 import socket
+import re
+import secrets
+import smtplib
 import pycurl
 import idna
 import ssl
 import zlib
 import base64
-import random
+from email.message import EmailMessage
 from functools import wraps
-from copy import deepcopy
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from urllib.parse import urlparse
 from datetime import datetime, timedelta, timezone
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, session, redirect
 from flask_cors import CORS
 from pymongo import MongoClient, ASCENDING, DESCENDING
 from bson import ObjectId
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+from werkzeug.security import generate_password_hash, check_password_hash
 import requests
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-
-# Load environment variables from .env file
 try:
     from dotenv import load_dotenv
-    # Look for .env in the project root (one level up from src/)
-    env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env')
-    load_dotenv(env_path)
-    print("=== Email Config Debug ===")
-    print(f"Looking for .env at: {env_path}")
-    print(f".env exists: {os.path.exists(env_path)}")
-    print(f"EMAIL_USERNAME: {os.getenv('EMAIL_USERNAME')}")
-    print(f"EMAIL_PASSWORD: {'*' * len(os.getenv('EMAIL_PASSWORD', ''))}")
-    print(f"EMAIL_FROM_ADDRESS: {os.getenv('EMAIL_FROM_ADDRESS')}")
-    print(f"EMAIL_SMTP_SERVER: {os.getenv('EMAIL_SMTP_SERVER')}")
-    print(f"EMAIL_SMTP_PORT: {os.getenv('EMAIL_SMTP_PORT')}")
-    print("========================")
 except ImportError:
-    print("Warning: python-dotenv not installed. Environment variables may not be loaded from .env file")
+    load_dotenv = None
+try:
+    from twilio.rest import Client as TwilioClient
+except ImportError:
+    TwilioClient = None
+    print("[Twilio] Library not installed. SMS sending will use non-Twilio fallback providers.")
 
 # Import new integration modules
-try:
-    from github_integration import GitHubIntegration
-except ImportError:
-    GitHubIntegration = None
-
-try:
-    from issue_integration import IssueIntegration
-except ImportError:
-    IssueIntegration = None
-
-try:
-    from log_collector import MongoDBLogHandler, log_api_error, get_recent_logs, get_logs_by_api
-except ImportError:
-    MongoDBLogHandler = log_api_error = get_recent_logs = get_logs_by_api = None
-
-try:
-    from correlation_engine import CorrelationEngine
-except ImportError:
-    CorrelationEngine = None
-
-try:
-    from ai_predictor import CategoryAwareAIPredictor as AIPredictor
-except ImportError:
-    AIPredictor = None
-
-try:
-    from alert_manager import AlertManager
-except ImportError:
-    AlertManager = None
-
-try:
-    from ai_alert_manager import AIAlertManager
-except ImportError:
-    AIAlertManager = None
-
-# Friend's improvements - now integrated
-try:
-    from auth_manager import create_user, authenticate, create_access_token, role_required
-except ImportError:
-    create_user = authenticate = create_access_token = role_required = None
-
-try:
-    from security_manager import decrypt_if_needed
-except ImportError:
-    def decrypt_if_needed(value):
-        return value
-
-try:
-    from self_healing import SelfHealingManager
-except ImportError:
-    SelfHealingManager = None
+from github_integration import GitHubIntegration
+from issue_integration import IssueIntegration
+from log_collector import MongoDBLogHandler, log_api_error, get_recent_logs, get_logs_by_api
+from correlation_engine import CorrelationEngine
+from ai_predictor import CategoryAwareAIPredictor as AIPredictor
+from alert_manager import AlertManager
+from ai_alert_manager import AIAlertManager
 
 # --- Configuration ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Go up one level to project root for static folders
 PROJECT_ROOT = os.path.dirname(BASE_DIR)
+if load_dotenv is not None:
+    load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
 SIMPLE_STATIC_DIR = os.path.join(PROJECT_ROOT, "static")
 ADVANCED_STATIC_DIR = os.path.join(PROJECT_ROOT, "static_advanced")
 app = Flask(__name__, static_folder=SIMPLE_STATIC_DIR)
-CORS(app)
+app.secret_key = os.getenv("FLASK_SECRET_KEY", secrets.token_hex(32))
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=int(os.getenv("AUTH_SESSION_DAYS", "7")))
+auth_serializer = URLSafeTimedSerializer(app.secret_key)
 
-# Serve advanced static files
-@app.route("/static_advanced/<path:filename>")
-def serve_advanced_static(filename):
-    return send_from_directory(ADVANCED_STATIC_DIR, filename)
+CORS_ORIGINS = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5000,http://127.0.0.1:5000"
+)
+if CORS_ORIGINS.strip() == "*":
+    CORS(app)
+else:
+    allowed_origins = [origin.strip() for origin in CORS_ORIGINS.split(",") if origin.strip()]
+    CORS(app, resources={r"/*": {"origins": allowed_origins}})
 
-# Advanced dashboard page
-@app.route("/advanced_monitor")
-def advanced_monitor():
-    return send_from_directory(ADVANCED_STATIC_DIR, "monitor.html")
+# AI Training Service URL (runs on separate port)
+AI_TRAINING_SERVICE_URL = "http://localhost:5001"
+
+# Connectivity pre-check before API monitoring
+NETWORK_TEST_URL = os.getenv("NETWORK_TEST_URL", "https://www.gstatic.com/generate_204")
+NETWORK_TEST_URLS = os.getenv("NETWORK_TEST_URLS", NETWORK_TEST_URL)
+NETWORK_TEST_TIMEOUT_SECONDS = int(os.getenv("NETWORK_TEST_TIMEOUT_SECONDS", "6"))
+NETWORK_MIN_DOWNLOAD_MBPS = float(os.getenv("NETWORK_MIN_DOWNLOAD_MBPS", "0.05"))
+NETWORK_MAX_LATENCY_MS = float(os.getenv("NETWORK_MAX_LATENCY_MS", "3000"))
+
+# SLO/Burn-rate configuration
+SLO_TARGET_UPTIME_PCT = float(os.getenv("SLO_TARGET_UPTIME_PCT", "99.9"))
+SLO_ERROR_BUDGET_WINDOW_DAYS = int(os.getenv("SLO_ERROR_BUDGET_WINDOW_DAYS", "30"))
+BURN_RATE_WARNING_1H = float(os.getenv("BURN_RATE_WARNING_1H", "6.0"))
+BURN_RATE_WARNING_6H = float(os.getenv("BURN_RATE_WARNING_6H", "3.0"))
+BURN_RATE_CRITICAL_1H = float(os.getenv("BURN_RATE_CRITICAL_1H", "14.4"))
+BURN_RATE_CRITICAL_6H = float(os.getenv("BURN_RATE_CRITICAL_6H", "6.0"))
+BURN_RATE_ALERT_COOLDOWN_MINUTES = int(os.getenv("BURN_RATE_ALERT_COOLDOWN_MINUTES", "30"))
+
+# Authentication configuration
+AUTH_REQUIRED = os.getenv("AUTH_REQUIRED", "false").lower() in ("1", "true", "yes", "on")
+AUTH_REQUIRE_EMAIL_VERIFICATION = os.getenv("AUTH_REQUIRE_EMAIL_VERIFICATION", "true").lower() in ("1", "true", "yes", "on")
+AUTH_EMAIL_TOKEN_MAX_AGE_SECONDS = int(os.getenv("AUTH_EMAIL_TOKEN_MAX_AGE_SECONDS", "86400"))
+AUTH_SMTP_HOST = os.getenv("AUTH_SMTP_HOST", "smtp.gmail.com")
+AUTH_SMTP_PORT = int(os.getenv("AUTH_SMTP_PORT", "587"))
+AUTH_SMTP_USERNAME = os.getenv("AUTH_SMTP_USERNAME", "")
+AUTH_SMTP_APP_PASSWORD = os.getenv("AUTH_SMTP_APP_PASSWORD", "")
+AUTH_SMTP_FROM_EMAIL = os.getenv("AUTH_SMTP_FROM_EMAIL", AUTH_SMTP_USERNAME or "noreply@example.com")
+AUTH_EMAIL_SUBJECT = os.getenv("AUTH_EMAIL_SUBJECT", "Verify your API Monitoring account")
+
+# Subscription configuration
+FREE_MAX_MONITORS = int(os.getenv("FREE_MAX_MONITORS", "100"))
+PREMIUM_INTERVAL_SECONDS = {30, 10, 5, 1}
+
+# WhatsApp notification provider configuration
+WHATSAPP_API_URL = os.getenv("WHATSAPP_API_URL", "https://api.example.com/whatsapp/send")
+WHATSAPP_API_TOKEN = os.getenv("WHATSAPP_API_TOKEN")
+
+# SMS notification provider configuration (generic HTTP)
+SMS_API_URL = os.getenv("SMS_API_URL", "https://api.example.com/sms/send")
+SMS_API_TOKEN = os.getenv("SMS_API_TOKEN")
+
+# Twilio SMS configuration (preferred when set)
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+TWILIO_MESSAGING_SERVICE_SID = os.getenv("TWILIO_MESSAGING_SERVICE_SID")
+
+twilio_client = None
+if TwilioClient and TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN:
+    try:
+        twilio_client = TwilioClient(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+    except Exception as e:
+        print(f"[Twilio] Failed to initialize client: {e}")
+
+# IVR notification provider configuration
+IVR_API_URL = os.getenv("IVR_API_URL", "https://api.example.com/ivr/call")
+IVR_API_TOKEN = os.getenv("IVR_API_TOKEN")
+
+# Translation provider configuration
+TRANSLATION_API_URL = os.getenv("TRANSLATION_API_URL", "https://translation.googleapis.com/language/translate/v2")
+TRANSLATION_API_KEY = os.getenv("TRANSLATION_API_KEY")
+SUPPORTED_LANGUAGES = {"EN", "TA", "HI"}
+
+# --- MongoDB Configuration ---
+MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017/")
+MONGODB_DB = os.getenv("MONGODB_DB", "api_monitoring")
+
+# Global MongoDB client
+mongo_client = None
+db = None
+
+# --- Compression Utilities ---
+def compress_data(data):
+    """Compress string data using zlib and encode to base64."""
+    if not data:
+        return None
+    try:
+        compressed = zlib.compress(data.encode('utf-8'), level=9)
+        return base64.b64encode(compressed).decode('utf-8')
+    except Exception as e:
+        print(f"[COMPRESSION ERROR] {e}")
+        return data
+
+def decompress_data(compressed_data):
+    """Decompress base64 encoded zlib data."""
+    if not compressed_data:
+        return None
+    try:
+        decoded = base64.b64decode(compressed_data.encode('utf-8'))
+        return zlib.decompress(decoded).decode('utf-8')
+    except Exception as e:
+        print(f"[DECOMPRESSION ERROR] {e}")
+        return compressed_data
 
 # --- MongoDB Connection ---
 def init_mongodb():
@@ -142,14 +188,21 @@ def init_mongodb():
         monitoring_logs = db.monitoring_logs
         
         # Indexes for monitored_apis
-        monitored_apis.create_index([("url", ASCENDING)], unique=True)
+        try:
+            monitored_apis.drop_index("url_1")
+        except Exception:
+            pass
+        monitored_apis.create_index([("user_id", ASCENDING), ("url", ASCENDING)], unique=True)
         monitored_apis.create_index([("category", ASCENDING)])
         monitored_apis.create_index([("is_active", ASCENDING)])
+        monitored_apis.create_index([("user_id", ASCENDING)])
         
         # Indexes for monitoring_logs
         monitoring_logs.create_index([("api_id", ASCENDING)])
+        monitoring_logs.create_index([("user_id", ASCENDING)])
         monitoring_logs.create_index([("timestamp", DESCENDING)])
         monitoring_logs.create_index([("api_id", ASCENDING), ("timestamp", DESCENDING)])
+        monitoring_logs.create_index([("check_skipped", ASCENDING)])
         
         # New collections for developer data
         git_commits = db.git_commits
@@ -185,8 +238,18 @@ def init_mongodb():
         # Index for alert_history collection
         alert_history = db.alert_history
         alert_history.create_index([("api_id", ASCENDING)])
+        alert_history.create_index([("user_id", ASCENDING)])
+        alert_history.create_index([("user_id", ASCENDING), ("api_id", ASCENDING)])
         alert_history.create_index([("created_at", DESCENDING)])
         alert_history.create_index([("status", ASCENDING)])
+        alert_history.create_index([("alert_type", ASCENDING), ("status", ASCENDING)])
+
+        # Incident grouping and suppression
+        alert_incidents = db.alert_incidents
+        alert_incidents.create_index([("api_id", ASCENDING), ("status", ASCENDING)])
+        alert_incidents.create_index([("user_id", ASCENDING), ("status", ASCENDING)])
+        alert_incidents.create_index([("created_at", DESCENDING)])
+        alert_incidents.create_index([("incident_id", ASCENDING)], unique=True)
 
         # AI insights collection for LLM-style summaries
         ai_insights = db.ai_insights
@@ -208,6 +271,11 @@ def init_mongodb():
         translation_cache = db.translation_cache
         translation_cache.create_index([("source_text", ASCENDING), ("target_language", ASCENDING)], unique=True)
 
+        # Authentication collections
+        auth_users = db.auth_users
+        auth_users.create_index([("email", ASCENDING)], unique=True)
+        auth_users.create_index([("created_at", DESCENDING)])
+
         # Indexes for data_correlations
         data_correlations.create_index([("api_id", ASCENDING)])
         data_correlations.create_index([("timestamp", DESCENDING)])
@@ -226,98 +294,487 @@ def init_mongodb():
 def now_isoutc():
     return datetime.utcnow().isoformat() + "Z"
 
-
-# --- Phase 2 Demo Mock State ---
-def _demo_timestamp():
-    return now_isoutc()
-
-
-DEMO_INCIDENT = {
-    "incident_id": "INC-DEMO",
-    "status": "Mitigating",
-    "severity": "High",
-    "assigned_to": {"name": "Dr. Rao", "role": "NGO Leader"},
-    "api": {
-        "id": "api_demo",
-        "name": "Patient Bed Availability",
-        "url": "https://health.example.org/beds"
-    },
-    "started_at": _demo_timestamp(),
-    "summary": "AI predicted DB saturation impacting hospital updates",
-}
-
-DEMO_CHAT = [
-    {
-        "id": "msg1",
-        "author": "Aisha (Field Worker)",
-        "role": "Field Worker",
-        "message": "Bed counts are stale for the last 20 minutes.",
-        "timestamp": _demo_timestamp()
-    },
-    {
-        "id": "msg2",
-        "author": "AI Co-Pilot",
-        "role": "AI",
-        "message": "Telemetry shows DB latency ↑180%. Suggest checking replication lag.",
-        "timestamp": _demo_timestamp()
-    }
-]
-
-DEMO_TIMELINE = [
-    {"type": "alert", "label": "AI Prediction", "detail": "Risk 82%", "timestamp": _demo_timestamp()},
-    {"type": "action", "label": "Restarted read replica", "detail": "DevOps", "timestamp": _demo_timestamp()}
-]
-
-DEMO_CAUSAL_GRAPH = {
-    "nodes": [
-        {"id": "API", "label": "Patient API", "status": "warning"},
-        {"id": "DB", "label": "Beds DB", "status": "critical"},
-        {"id": "Cache", "label": "Cache Layer", "status": "normal"},
-        {"id": "Network", "label": "WAN", "status": "warning"}
-    ],
-    "edges": [
-        {"from": "API", "to": "Cache"},
-        {"from": "Cache", "to": "DB"},
-        {"from": "API", "to": "Network"}
-    ],
-    "root_cause": "DB",
-    "confidence": 0.87,
-    "insight": "Write throughput spike saturated DB CPU at 92%"
-}
-
-DEMO_SIM_HISTORY = []
-
-ROLE_PERMISSIONS = {
-    "create_incident": {"Admin", "Developer"},
-    "assign_incident": {"Admin", "NGO Leader"},
-    "update_status": {"Admin", "NGO Leader"},
-    "run_simulation": {"Admin", "Developer"},
-}
-
-
-def _get_request_role():
-    return (request.headers.get("X-Demo-Role") or request.args.get("demo_role") or "Field Worker").strip() or "Field Worker"
-
-
-def require_roles(allowed_roles):
-    def decorator(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            role = _get_request_role()
-            if role not in allowed_roles:
-                return jsonify({"error": "Forbidden", "required_roles": sorted(list(allowed_roles))}), 403
-            request.demo_role = role
-            return func(*args, **kwargs)
-        return wrapper
-    return decorator
-
-
 def is_valid_url(url):
     try:
         parsed = urlparse(url)
         return parsed.scheme in ("http", "https") and parsed.netloc != ""
     except Exception:
         return False
+
+
+def parse_iso_datetime(value):
+    if isinstance(value, datetime):
+        return value if value.tzinfo is None else value.astimezone(timezone.utc).replace(tzinfo=None)
+    if not isinstance(value, str) or not value:
+        return None
+    raw = value.strip()
+    try:
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+        dt = datetime.fromisoformat(raw)
+        return dt if dt.tzinfo is None else dt.astimezone(timezone.utc).replace(tzinfo=None)
+    except Exception:
+        return None
+
+
+def safe_float(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def calculate_percentile(values, percentile):
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return float(ordered[0])
+    rank = (len(ordered) - 1) * (percentile / 100.0)
+    low = int(math.floor(rank))
+    high = int(math.ceil(rank))
+    if low == high:
+        return float(ordered[low])
+    weight = rank - low
+    return float(ordered[low] + (ordered[high] - ordered[low]) * weight)
+
+
+ROOT_CAUSE_DESCRIPTIONS = {
+    "network": "Network connectivity issue between monitor and target",
+    "dns": "DNS resolution issue or very slow DNS lookup",
+    "tls": "TLS/SSL handshake or certificate problem",
+    "timeout": "Request timed out before response completed",
+    "5xx": "Server-side HTTP 5xx error from upstream service",
+    "auth": "Authentication/authorization failure (401/403)",
+    "unknown": "Root cause could not be classified automatically",
+}
+
+
+def classify_root_cause(log_entry):
+    if not isinstance(log_entry, dict):
+        return "unknown"
+
+    status_code = log_entry.get("status_code")
+    try:
+        status_code = int(status_code) if status_code is not None else None
+    except Exception:
+        status_code = None
+
+    error_text = str(log_entry.get("error_message") or log_entry.get("error") or "").lower()
+    network_is_up = log_entry.get("network_is_up")
+    skip_reason = str(log_entry.get("skip_reason") or "").lower()
+
+    if log_entry.get("check_skipped") or skip_reason == "network_unavailable":
+        return "network"
+    if "low network" in error_text or "network is unreachable" in error_text:
+        return "network"
+    if network_is_up is False and not bool(log_entry.get("is_up", True)):
+        return "network"
+
+    if status_code in {401, 403, 407}:
+        return "auth"
+    if status_code is not None and 500 <= status_code <= 599:
+        return "5xx"
+
+    timeout_patterns = ("timeout", "timed out", "operation timeout", "read timeout", "connection timeout")
+    if any(p in error_text for p in timeout_patterns):
+        return "timeout"
+
+    dns_patterns = ("could not resolve host", "name or service not known", "getaddrinfo", "dns")
+    if any(p in error_text for p in dns_patterns):
+        return "dns"
+
+    tls_patterns = ("ssl", "tls", "certificate", "handshake")
+    if any(p in error_text for p in tls_patterns):
+        return "tls"
+
+    if not bool(log_entry.get("is_up", True)):
+        dns_latency = safe_float(log_entry.get("dns_latency_ms")) or 0.0
+        tls_latency = safe_float(log_entry.get("tls_latency_ms")) or 0.0
+        if dns_latency >= 2500:
+            return "dns"
+        if tls_latency >= 2500:
+            return "tls"
+
+    return "unknown"
+
+
+def compute_slo_metrics(api_id, now_utc=None):
+    metrics = {
+        "slo_target_uptime_pct": SLO_TARGET_UPTIME_PCT,
+        "error_budget_window_days": SLO_ERROR_BUDGET_WINDOW_DAYS,
+        "uptime_pct_24h": 100.0,
+        "avg_latency_24h": 0.0,
+        "p95_latency_24h": 0.0,
+        "checks_24h": 0,
+        "error_budget_remaining_pct": 100.0,
+        "error_budget_consumed_pct": 0.0,
+        "observed_error_rate_pct_window": 0.0,
+        "allowed_error_rate_pct": max(0.0001, 100.0 - SLO_TARGET_UPTIME_PCT),
+        "burn_rate_1h": 0.0,
+        "burn_rate_6h": 0.0,
+        "burn_rate_alert_level": "none",
+        "burn_rate_alert_message": "No burn-rate alert",
+    }
+
+    if db is None or not api_id:
+        return metrics
+
+    now_utc = now_utc or datetime.utcnow()
+    budget_days = max(1, int(SLO_ERROR_BUDGET_WINDOW_DAYS))
+    start_budget = now_utc - timedelta(days=budget_days)
+    start_24h = now_utc - timedelta(hours=24)
+    start_6h = now_utc - timedelta(hours=6)
+    start_1h = now_utc - timedelta(hours=1)
+
+    cursor = db.monitoring_logs.find(
+        {
+            "api_id": api_id,
+            "timestamp": {"$gte": start_budget.isoformat() + "Z"},
+            "check_skipped": {"$ne": True},
+        },
+        {
+            "timestamp": 1,
+            "is_up": 1,
+            "total_latency_ms": 1,
+        },
+    )
+
+    total_budget = 0
+    down_budget = 0
+    total_24h = 0
+    up_24h = 0
+    total_1h = 0
+    down_1h = 0
+    total_6h = 0
+    down_6h = 0
+    latency_24h = []
+
+    for log in cursor:
+        ts = parse_iso_datetime(log.get("timestamp"))
+        if ts is None:
+            continue
+
+        is_up = bool(log.get("is_up", False))
+        total_budget += 1
+        if not is_up:
+            down_budget += 1
+
+        if ts >= start_24h:
+            total_24h += 1
+            if is_up:
+                up_24h += 1
+            latency = safe_float(log.get("total_latency_ms"))
+            if latency is not None and latency >= 0:
+                latency_24h.append(latency)
+
+        if ts >= start_6h:
+            total_6h += 1
+            if not is_up:
+                down_6h += 1
+
+        if ts >= start_1h:
+            total_1h += 1
+            if not is_up:
+                down_1h += 1
+
+    if total_24h > 0:
+        metrics["checks_24h"] = total_24h
+        metrics["uptime_pct_24h"] = round((up_24h / total_24h) * 100.0, 2)
+        if latency_24h:
+            metrics["avg_latency_24h"] = round(sum(latency_24h) / len(latency_24h), 2)
+            metrics["p95_latency_24h"] = round(calculate_percentile(latency_24h, 95), 2)
+
+    allowed_error_rate = max(1e-9, 1.0 - (SLO_TARGET_UPTIME_PCT / 100.0))
+    observed_error_rate_budget = (down_budget / total_budget) if total_budget > 0 else 0.0
+    metrics["observed_error_rate_pct_window"] = round(observed_error_rate_budget * 100.0, 4)
+    metrics["allowed_error_rate_pct"] = round(allowed_error_rate * 100.0, 4)
+
+    consumed_ratio = observed_error_rate_budget / allowed_error_rate if allowed_error_rate > 0 else 0.0
+    consumed_pct = max(0.0, min(100.0, consumed_ratio * 100.0))
+    metrics["error_budget_consumed_pct"] = round(consumed_pct, 2)
+    metrics["error_budget_remaining_pct"] = round(max(0.0, 100.0 - consumed_pct), 2)
+
+    error_rate_1h = (down_1h / total_1h) if total_1h > 0 else 0.0
+    error_rate_6h = (down_6h / total_6h) if total_6h > 0 else 0.0
+    burn_1h = error_rate_1h / allowed_error_rate if allowed_error_rate > 0 else 0.0
+    burn_6h = error_rate_6h / allowed_error_rate if allowed_error_rate > 0 else 0.0
+    metrics["burn_rate_1h"] = round(burn_1h, 2)
+    metrics["burn_rate_6h"] = round(burn_6h, 2)
+
+    if total_1h >= 3 and total_6h >= 6 and burn_1h >= BURN_RATE_CRITICAL_1H and burn_6h >= BURN_RATE_CRITICAL_6H:
+        metrics["burn_rate_alert_level"] = "critical"
+        metrics["burn_rate_alert_message"] = (
+            f"Critical burn rate: 1h={burn_1h:.2f}x, 6h={burn_6h:.2f}x error budget consumption"
+        )
+    elif total_1h >= 3 and total_6h >= 6 and burn_1h >= BURN_RATE_WARNING_1H and burn_6h >= BURN_RATE_WARNING_6H:
+        metrics["burn_rate_alert_level"] = "warning"
+        metrics["burn_rate_alert_message"] = (
+            f"Warning burn rate: 1h={burn_1h:.2f}x, 6h={burn_6h:.2f}x error budget consumption"
+        )
+
+    return metrics
+
+
+def sync_burn_rate_alert(api_id, api_url, slo_metrics, user_id=None):
+    if db is None:
+        return None
+
+    level = (slo_metrics or {}).get("burn_rate_alert_level", "none")
+    user_id = user_id or "default_user"
+    open_alert = db.alert_history.find_one(
+        {
+            "api_id": api_id,
+            "user_id": user_id,
+            "status": "open",
+            "alert_type": "burn_rate",
+        },
+        sort=[("created_at", DESCENDING)],
+    )
+
+    if level in {"warning", "critical"}:
+        payload = {
+            "severity": level,
+            "reason": slo_metrics.get("burn_rate_alert_message"),
+            "burn_rate_1h": slo_metrics.get("burn_rate_1h"),
+            "burn_rate_6h": slo_metrics.get("burn_rate_6h"),
+            "error_budget_remaining_pct": slo_metrics.get("error_budget_remaining_pct"),
+            "updated_at": now_isoutc(),
+        }
+        if open_alert:
+            db.alert_history.update_one({"_id": open_alert["_id"]}, {"$set": payload})
+            return {"status": "updated"}
+
+        cooldown_cutoff = (datetime.utcnow() - timedelta(minutes=BURN_RATE_ALERT_COOLDOWN_MINUTES)).isoformat() + "Z"
+        recent = db.alert_history.find_one(
+            {
+                "api_id": api_id,
+                "user_id": user_id,
+                "alert_type": "burn_rate",
+                "created_at": {"$gte": cooldown_cutoff},
+            }
+        )
+        if recent:
+            return {"status": "suppressed"}
+
+        db.alert_history.insert_one(
+            {
+                "api_id": api_id,
+                "user_id": user_id,
+                "api_url": api_url,
+                "alert_type": "burn_rate",
+                "status": "open",
+                "severity": level,
+                "reason": slo_metrics.get("burn_rate_alert_message"),
+                "burn_rate_1h": slo_metrics.get("burn_rate_1h"),
+                "burn_rate_6h": slo_metrics.get("burn_rate_6h"),
+                "error_budget_remaining_pct": slo_metrics.get("error_budget_remaining_pct"),
+                "created_at": now_isoutc(),
+            }
+        )
+        return {"status": "created"}
+
+    if open_alert:
+        db.alert_history.update_one(
+            {"_id": open_alert["_id"]},
+            {"$set": {"status": "closed", "resolved_at": now_isoutc(), "resolution": "Burn rate normalized"}},
+        )
+        return {"status": "closed"}
+
+    return {"status": "none"}
+
+
+EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+
+
+def normalize_email(email):
+    return (email or "").strip().lower()
+
+
+def is_valid_email(email):
+    return bool(EMAIL_RE.match(normalize_email(email)))
+
+
+def build_email_verification_token(email):
+    return auth_serializer.dumps({"email": normalize_email(email)}, salt="email-verify")
+
+
+def build_email_verification_url(verification_token):
+    base_url = os.getenv("AUTH_BASE_URL", "http://127.0.0.1:5000").rstrip("/")
+    return f"{base_url}/auth/verify-email?token={verification_token}"
+
+
+def read_email_verification_token(token):
+    data = auth_serializer.loads(
+        token,
+        salt="email-verify",
+        max_age=AUTH_EMAIL_TOKEN_MAX_AGE_SECONDS
+    )
+    return normalize_email(data.get("email"))
+
+
+def has_smtp_credentials():
+    username = (AUTH_SMTP_USERNAME or "").strip()
+    app_password = (AUTH_SMTP_APP_PASSWORD or "").strip()
+    if not username or not app_password:
+        return False
+
+    placeholder_usernames = {"your_email@example.com", "noreply@example.com"}
+    placeholder_passwords = {"your_app_password_here", "app_password"}
+    if username.lower() in placeholder_usernames:
+        return False
+    if app_password.lower() in placeholder_passwords:
+        return False
+    return True
+
+
+def send_verification_email(to_email, verification_token):
+    if not has_smtp_credentials():
+        return False, "SMTP credentials not configured. Set AUTH_SMTP_USERNAME and AUTH_SMTP_APP_PASSWORD in .env, then restart."
+
+    verify_link = build_email_verification_url(verification_token)
+    msg = EmailMessage()
+    msg["Subject"] = AUTH_EMAIL_SUBJECT
+    msg["From"] = AUTH_SMTP_FROM_EMAIL
+    msg["To"] = to_email
+    msg.set_content(
+        "Verify your API Monitoring account.\n\n"
+        f"Open this link:\n{verify_link}\n\n"
+        f"This link expires in {AUTH_EMAIL_TOKEN_MAX_AGE_SECONDS // 3600} hour(s)."
+    )
+
+    try:
+        with smtplib.SMTP(AUTH_SMTP_HOST, AUTH_SMTP_PORT, timeout=15) as smtp:
+            smtp.starttls()
+            smtp.login(AUTH_SMTP_USERNAME, AUTH_SMTP_APP_PASSWORD)
+            smtp.send_message(msg)
+        return True, None
+    except Exception as exc:
+        return False, str(exc)
+
+
+def build_verification_delivery_payload(base_payload, verification_token, sent, error):
+    payload = dict(base_payload or {})
+    payload["requires_verification"] = True
+    payload["email_sent"] = bool(sent)
+    if sent:
+        return payload
+    payload["delivery_error"] = error or "Unable to send verification email"
+    payload["dev_verification_token"] = verification_token
+    payload["verification_url"] = build_email_verification_url(verification_token)
+    return payload
+
+
+def normalize_subscription_plan(plan):
+    value = str(plan or "free").strip().lower()
+    if value in {"subscriber", "premium", "pro", "paid", "unlimited"}:
+        return "subscriber"
+    return "free"
+
+
+def is_subscriber(user_or_plan):
+    if isinstance(user_or_plan, dict):
+        plan = normalize_subscription_plan(user_or_plan.get("subscription_plan"))
+    else:
+        plan = normalize_subscription_plan(user_or_plan)
+    return plan == "subscriber"
+
+
+def subscription_features(plan):
+    normalized = normalize_subscription_plan(plan)
+    return {
+        "plan": normalized,
+        "max_monitors": None if normalized == "subscriber" else FREE_MAX_MONITORS,
+        "premium_frequency_locked": normalized != "subscriber",
+        "community_communication_enabled": normalized == "subscriber",
+        "premium_intervals_seconds": sorted(PREMIUM_INTERVAL_SECONDS),
+        "free_channels": ["email", "github_issue"],
+    }
+
+
+def minutes_to_seconds(freq_minutes):
+    value = safe_float(freq_minutes)
+    if value is None or value <= 0:
+        return 60
+    return int(round(value * 60))
+
+
+def is_premium_frequency(freq_minutes):
+    return minutes_to_seconds(freq_minutes) in PREMIUM_INTERVAL_SECONDS
+
+
+def get_current_user_id():
+    user = get_current_user()
+    if not user:
+        return None
+    return str(user.get("_id"))
+
+
+def get_user_from_session_or_error():
+    user = get_current_user()
+    if not user:
+        return None, (jsonify({"error": "Authentication required"}), 401)
+    return user, None
+
+
+def get_monitor_for_user(api_id, user_id):
+    if db is None:
+        return None
+    try:
+        return db.monitored_apis.find_one({"_id": ObjectId(api_id), "user_id": user_id})
+    except Exception:
+        return None
+
+
+def ensure_api_access_or_error(api_id, user_id):
+    api_doc = get_monitor_for_user(api_id, user_id)
+    if not api_doc:
+        return None, (jsonify({"error": "API not found or access denied"}), 404)
+    return api_doc, None
+
+
+def get_user_settings(user_id):
+    if db is None:
+        return None
+    return db.github_settings.find_one({"user_id": user_id})
+
+
+def get_user_plan_by_id(user_id):
+    if db is None or not user_id:
+        return "free"
+    try:
+        user = db.auth_users.find_one({"_id": ObjectId(user_id)}, {"subscription_plan": 1})
+    except Exception:
+        return "free"
+    if not user:
+        return "free"
+    return normalize_subscription_plan(user.get("subscription_plan"))
+
+
+def require_logged_in_api(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        user = get_current_user()
+        if not user:
+            return jsonify({"error": "Authentication required"}), 401
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def require_subscriber_api(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        user = get_current_user()
+        if not user:
+            return jsonify({"error": "Authentication required"}), 401
+        if not is_subscriber(user):
+            return jsonify({
+                "error": "This feature requires subscription",
+                "plan": normalize_subscription_plan(user.get("subscription_plan")),
+                "required_plan": "subscriber",
+            }), 403
+        return fn(*args, **kwargs)
+    return wrapper
 
 def serialize_objectid(doc):
     """Convert MongoDB ObjectId and datetime to string for JSON serialization."""
@@ -349,103 +806,465 @@ def serialize_worker_response(doc):
     return serialized
 
 
-def fetch_worker_responses(api_id, limit=10):
+def fetch_worker_responses(api_id, limit=10, user_id=None):
     if db is None or not api_id:
         return []
-    cursor = db.worker_responses.find({"api_id": api_id}).sort("timestamp", DESCENDING).limit(limit)
+    query = {"api_id": api_id}
+    if user_id:
+        query["user_id"] = user_id
+    cursor = db.worker_responses.find(query).sort("timestamp", DESCENDING).limit(limit)
     return [serialize_worker_response(doc) for doc in cursor]
 
 
-def build_email_message(payload):
-    """Build email message content from alert payload."""
-    subject = f"API Alert: {payload.get('api_name', 'Unknown')} - {payload.get('status', 'Check Required')}"
-    
-    body_parts = [
-        f"API Name: {payload.get('api_name', 'Unknown')}",
-        f"Status: {payload.get('status', 'Unknown')}",
-        f"Risk Level: {payload.get('risk_percentage', 'N/A')}%",
+def build_whatsapp_message(payload):
+    template = (
+        "⚠️ API Alert: {api_name}\n"
+        "Risk: {risk_percentage}%\n"
+        "Cause: {cause_summary}\n"
+        "Action: {recommendation}\n\n"
+        "Reply:\n"
+        "1 - FIXED\n"
+        "2 - NEED HELP\n"
+        "3 - RETRY"
+    )
+    return template.format(
+        api_name=payload.get("api_name", "Unknown API"),
+        risk_percentage=payload.get("risk_percentage", "N/A"),
+        cause_summary=payload.get("cause_summary", "Unable to determine cause"),
+        recommendation=payload.get("recommendation", "Follow standard recovery steps")
+    )
+
+
+def dispatch_whatsapp_message(phone_number, message_text):
+    if not WHATSAPP_API_TOKEN:
+        raise RuntimeError("Missing WHATSAPP_API_TOKEN")
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {WHATSAPP_API_TOKEN}"
+    }
+    body = {
+        "to": phone_number,
+        "type": "template",
+        "text": message_text,
+        "quick_replies": [
+            {"label": "FIXED", "metadata": "FIXED"},
+            {"label": "NEED HELP", "metadata": "NEED_HELP"},
+            {"label": "RETRY", "metadata": "RETRY"}
+        ]
+    }
+    last_error = None
+    for attempt in range(3):
+        try:
+            response = requests.post(WHATSAPP_API_URL, json=body, headers=headers, timeout=5)
+            response.raise_for_status()
+            return True, response.json()
+        except Exception as exc:
+            last_error = str(exc)
+            time.sleep(1)
+    return False, last_error
+
+
+def build_ivr_script(payload):
+    body = (
+        f"Emergency alert for {payload.get('api_name', 'Unknown API')}.\n"
+        f"Risk level {payload.get('risk_level', 'high')}.\n"
+        f"Cause: {payload.get('cause_voice', payload.get('cause_summary', 'Check system'))}.\n"
+        "To confirm after action, press 1.\n"
+        "To request help, press 2.\n"
+        "To repeat this message, press 3."
+    )
+    return body
+
+
+def dispatch_ivr_call(phone_number, payload):
+    if not IVR_API_TOKEN:
+        raise RuntimeError("Missing IVR_API_TOKEN")
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {IVR_API_TOKEN}"
+    }
+    body = {
+        "to": phone_number,
+        "script": build_ivr_script(payload),
+        "api_id": payload.get("api_id"),
+        "alert_id": payload.get("alert_id")
+    }
+    last_error = None
+    for attempt in range(3):
+        try:
+            response = requests.post(IVR_API_URL, json=body, headers=headers, timeout=5)
+            response.raise_for_status()
+            return True, response.json()
+        except Exception as exc:
+            last_error = str(exc)
+            time.sleep(1)
+    return False, last_error
+
+
+def normalize_ivr_input(digit):
+    mapping = {"1": "FIXED", "2": "NEED_HELP", "3": "RETRY"}
+    return mapping.get(str(digit).strip(), "UNKNOWN")
+
+
+def normalize_whatsapp_response(message_body):
+    if not message_body:
+        return "UNKNOWN"
+    text = message_body.strip().upper()
+    if text in {"1", "FIXED", "DONE", "RESOLVED"}:
+        return "FIXED"
+    if "HELP" in text:
+        return "NEED_HELP"
+    if "RETRY" in text or text == "3":
+        return "RETRY"
+    return "UNKNOWN"
+
+
+def build_sms_message(payload):
+    parts = [
+        f"API ALERT: {payload.get('api_name', 'Unknown')}",
+        f"Risk: {payload.get('risk_percentage', 'N/A')}%",
         f"Cause: {payload.get('cause_short', payload.get('cause_summary', 'Check system'))}",
-        f"Recommended Action: {payload.get('fix_step', payload.get('recommendation', 'Follow standard recovery steps'))}",
-        "",
-        "Please check the dashboard for more details and take appropriate action.",
-        "Reply with 'FIXED' if you have resolved this issue."
+        f"Action: {payload.get('fix_step', payload.get('recommendation', 'Follow standard recovery steps'))}",
+        "Reply FIXED or HELP"
     ]
-    
-    body = "\n".join(body_parts)
-    return subject, body
+    message = " | ".join(parts)
+    return message[:160]
 
 
-def dispatch_email_message(email_address, payload):
-    """Send email notification using SMTP."""
-    if not EMAIL_USERNAME or not EMAIL_PASSWORD or not EMAIL_FROM_ADDRESS:
-        raise RuntimeError("Missing email configuration: EMAIL_USERNAME, EMAIL_PASSWORD, and EMAIL_FROM_ADDRESS must be set")
-    
-    subject, body = build_email_message(payload)
-    
-    msg = MIMEMultipart()
-    msg['From'] = EMAIL_FROM_ADDRESS
-    msg['To'] = email_address
-    msg['Subject'] = subject
-    
-    msg.attach(MIMEText(body, 'plain'))
-    
+def dispatch_sms_message(phone_number, message_text):
+    """Send SMS via Twilio if configured, otherwise fall back to generic HTTP provider.
+
+    This allows local/dev environments to use Twilio credentials, while keeping
+    compatibility with the previous SMS_API_URL/SMS_API_TOKEN flow.
+    """
+
+    # Preferred path: Twilio
+    if twilio_client and TWILIO_MESSAGING_SERVICE_SID:
+        try:
+            message = twilio_client.messages.create(
+                messaging_service_sid=TWILIO_MESSAGING_SERVICE_SID,
+                body=message_text,
+                to=phone_number,
+            )
+            return True, {"sid": message.sid, "status": message.status}
+        except Exception as exc:
+            # If Twilio is configured but fails, bubble the error
+            return False, str(exc)
+
+    # Fallback: generic HTTP provider using SMS_API_URL/SMS_API_TOKEN
+    if not SMS_API_TOKEN:
+        raise RuntimeError("Missing SMS configuration: either Twilio or SMS_API_TOKEN must be set")
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {SMS_API_TOKEN}"
+    }
+    body = {
+        "to": phone_number,
+        "message": message_text
+    }
+    last_error = None
+    for attempt in range(3):
+        try:
+            response = requests.post(SMS_API_URL, json=body, headers=headers, timeout=5)
+            response.raise_for_status()
+            return True, response.json()
+        except Exception as exc:
+            last_error = str(exc)
+            time.sleep(1)
+    return False, last_error
+
+
+def store_ai_insight(api_id, insight_payload):
+    """Persist LLM-style AI insight entries."""
+    if db is None or not api_id or not insight_payload:
+        return None
+
+    owner_user_id = None
     try:
-        server = smtplib.SMTP(EMAIL_SMTP_SERVER, EMAIL_SMTP_PORT)
-        server.starttls()
-        server.login(EMAIL_USERNAME, EMAIL_PASSWORD)
-        text = msg.as_string()
-        server.sendmail(EMAIL_FROM_ADDRESS, email_address, text)
-        server.quit()
-        
-        # Log the email notification to database
-        if db is not None:
-            notifications = db.notifications
-            notification_doc = {
-                "channel": "email",
-                "email_address": email_address,
-                "message": subject,
-                "payload": payload,
-                "api_id": payload.get("api_id"),
-                "timestamp": datetime.now(timezone.utc),
-                "status": "sent"
-            }
-            notifications.insert_one(notification_doc)
-        
-        return True, {"message": "Email sent successfully"}
-    except Exception as exc:
-        # Log failed email attempt
-        if db is not None:
-            notifications = db.notifications
-            notification_doc = {
-                "channel": "email",
-                "email_address": email_address,
-                "message": subject,
-                "payload": payload,
-                "api_id": payload.get("api_id"),
-                "timestamp": datetime.now(timezone.utc),
-                "status": "failed",
-                "error": str(exc)
-            }
-            notifications.insert_one(notification_doc)
-        
-        return False, str(exc)
+        api_doc = db.monitored_apis.find_one({"_id": ObjectId(api_id)}, {"user_id": 1})
+        owner_user_id = api_doc.get("user_id") if api_doc else None
+    except Exception:
+        owner_user_id = None
+
+    insight_doc = {
+        "api_id": api_id,
+        "user_id": owner_user_id,
+        "created_at": insight_payload.get("created_at") or datetime.utcnow().isoformat() + "Z",
+        "summary": insight_payload.get("summary"),
+        "details": insight_payload.get("details"),
+        "risk_level": insight_payload.get("risk_level"),
+        "confidence": insight_payload.get("confidence"),
+        "risk_score": insight_payload.get("risk_score"),
+        "training_session_id": insight_payload.get("training_session_id"),
+        "model_version": insight_payload.get("model_version"),
+        "actions": insight_payload.get("actions", []),
+        "metrics": insight_payload.get("metrics", {}),
+        "raw_prediction": insight_payload.get("raw_prediction", {}),
+    }
+
+    result = db.ai_insights.insert_one(insight_doc)
+    insight_doc["_id"] = result.inserted_id
+    return serialize_ai_insight(insight_doc)
 
 
-@app.route("/notify/email/send", methods=["POST"])
-def notify_email_send():
+def persist_worker_response(doc):
+    if db is None or not doc:
+        return None
+    if not doc.get("user_id") and doc.get("api_id"):
+        try:
+            api_doc = db.monitored_apis.find_one({"_id": ObjectId(doc["api_id"])}, {"user_id": 1})
+            if api_doc and api_doc.get("user_id"):
+                doc["user_id"] = api_doc.get("user_id")
+        except Exception:
+            pass
+    doc.setdefault("created_at", datetime.utcnow().isoformat() + "Z")
+    result = db.worker_responses.insert_one(doc)
+    doc["_id"] = result.inserted_id
+    return serialize_worker_response(doc)
+
+
+def get_cached_translation(text, target_language):
+    if db is None:
+        return None
+    if not text or not target_language:
+        return None
+    cache = db.translation_cache
+    cached = cache.find_one({"source_text": text, "target_language": target_language})
+    if cached:
+        return cached["translated_text"]
+    return None
+
+
+def cache_translation(text, target_language, translated_text):
+    if db is None:
+        return None
+    cache = db.translation_cache
+    cache.update_one(
+        {"source_text": text, "target_language": target_language},
+        {"$set": {"translated_text": translated_text, "updated_at": datetime.utcnow().isoformat() + "Z"}},
+        upsert=True
+    )
+
+
+def translate_text(text, target_language):
+    if not text or not target_language:
+        return ""
+    target_language = target_language.upper()
+    if target_language not in SUPPORTED_LANGUAGES:
+        target_language = "EN"
+
+    cached = get_cached_translation(text, target_language)
+    if cached:
+        return cached
+
+    if TRANSLATION_API_KEY:
+        payload = {
+            "q": text,
+            "target": target_language.lower(),
+            "key": TRANSLATION_API_KEY
+        }
+        try:
+            response = requests.post(TRANSLATION_API_URL, json=payload, timeout=5)
+            response.raise_for_status()
+            data = response.json()
+            translated = (
+                data.get("data", {}).get("translations", [])[0].get("translatedText")
+                if data.get("data") and data["data"].get("translations")
+                else text
+            )
+        except Exception:
+            translated = text
+    else:
+        params = {
+            "q": text,
+            "langpair": f"en|{target_language.lower()}"
+        }
+        try:
+            response = requests.get("https://api.mymemory.translated.net/get", params=params, timeout=5)
+            response.raise_for_status()
+            data = response.json()
+            translated = data.get("responseData", {}).get("translatedText", text)
+        except Exception:
+            translated = text
+
+    cache_translation(text, target_language, translated)
+    return translated
+
+
+def update_alert_worker_ack(alert_id, response_type, channel, timestamp):
+    if db is None or not alert_id:
+        return False
+    try:
+        object_id = ObjectId(alert_id)
+    except Exception:
+        return False
+    update_payload = {
+        "worker_acknowledgment": {
+            "response": response_type,
+            "channel": channel,
+            "timestamp": timestamp or datetime.utcnow().isoformat() + "Z"
+        }
+    }
+    db.alert_history.update_one({"_id": object_id}, {"$set": update_payload})
+    return True
+
+
+def get_ai_insights_from_db(api_id, limit=5, user_id=None):
+    if db is None:
+        return []
+    query = {"api_id": api_id}
+    if user_id:
+        query["user_id"] = user_id
+    cursor = db.ai_insights.find(query).sort("created_at", DESCENDING).limit(limit)
+    return [serialize_ai_insight(doc) for doc in cursor]
+
+
+def serialize_training_run(doc):
+    if not doc:
+        return None
+    serialized = dict(doc)
+    serialize_objectid(serialized)
+    return serialized
+
+
+def store_ai_training_run(api_id, payload):
+    """Persist detailed AI training run summaries."""
+    if db is None or not api_id or not payload:
+        return None
+
+    owner_user_id = payload.get("user_id")
+    if not owner_user_id:
+        try:
+            api_doc = db.monitored_apis.find_one({"_id": ObjectId(api_id)}, {"user_id": 1})
+            owner_user_id = api_doc.get("user_id") if api_doc else None
+        except Exception:
+            owner_user_id = None
+
+    training_doc = {
+        "api_id": api_id,
+        "user_id": owner_user_id,
+        "training_session_id": payload.get("training_session_id"),
+        "mode": payload.get("mode", "full"),
+        "status": payload.get("status", "completed"),
+        "started_at": payload.get("started_at") or datetime.utcnow().isoformat() + "Z",
+        "completed_at": payload.get("completed_at"),
+        "duration_seconds": payload.get("duration_seconds"),
+        "duration_minutes": payload.get("duration_minutes"),
+        "failure_probability": payload.get("failure_probability"),
+        "confidence": payload.get("confidence"),
+        "risk_level": payload.get("risk_level"),
+        "risk_score": payload.get("risk_score"),
+        "sample_size": payload.get("sample_size"),
+        "model_metadata": payload.get("model_metadata", {}),
+        "prediction": payload.get("prediction"),
+        "metrics": payload.get("metrics") or payload.get("prediction_metrics"),
+        "risk_factors": payload.get("risk_factors", []),
+        "log_lines": payload.get("log_lines", []),
+        "summary": payload.get("summary"),
+        "actions": payload.get("actions", []),
+        "created_at": payload.get("created_at") or datetime.utcnow().isoformat() + "Z",
+        "alert_sent": payload.get("alert_sent", False)
+    }
+
+    result = db.ai_training_runs.insert_one(training_doc)
+    training_doc["_id"] = result.inserted_id
+    return serialize_training_run(training_doc)
+
+
+def get_training_runs_from_db(api_id, limit=5, user_id=None):
+    if db is None:
+        return []
+    query = {"api_id": api_id}
+    if user_id:
+        query["user_id"] = user_id
+    cursor = db.ai_training_runs.find(query).sort("created_at", DESCENDING).limit(limit)
+    return [serialize_training_run(doc) for doc in cursor]
+
+
+def get_latest_training_run_from_db(api_id, user_id=None):
+    if db is None:
+        return None
+    query = {"api_id": api_id}
+    if user_id:
+        query["user_id"] = user_id
+    doc = db.ai_training_runs.find_one(query, sort=[("created_at", DESCENDING)])
+    return serialize_training_run(doc)
+
+
+@app.route("/api/ai/training_runs", methods=["POST"])
+def receive_training_run():
     if db is None:
         return jsonify({"error": "Database not connected"}), 500
 
     payload = request.json or {}
-    email_address = payload.get("email_address")
     api_id = payload.get("api_id")
-    alert_id = payload.get("alert_id")
-    
-    if not email_address or not api_id or not alert_id:
-        return jsonify({"error": "email_address, api_id, and alert_id are required"}), 400
+    if not api_id:
+        return jsonify({"error": "api_id required"}), 400
 
     try:
-        success, response_data = dispatch_email_message(email_address, payload)
+        stored = store_ai_training_run(api_id, payload)
+        return jsonify({"success": True, "training_run": stored})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ai/training_runs/<api_id>")
+@require_logged_in_api
+def list_training_runs(api_id):
+    if db is None:
+        return jsonify({"error": "Database not connected"}), 500
+
+    limit = request.args.get("limit", 10, type=int)
+    limit = min(max(limit, 1), 100)
+    try:
+        api_doc, api_error = ensure_api_access_or_error(api_id, get_current_user_id())
+        if api_error:
+            return api_error
+        runs = get_training_runs_from_db(api_id, limit=limit, user_id=get_current_user_id())
+        return jsonify(runs)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ai/training_runs/latest/<api_id>")
+@require_logged_in_api
+def latest_training_run(api_id):
+    if db is None:
+        return jsonify({"error": "Database not connected"}), 500
+
+    try:
+        api_doc, api_error = ensure_api_access_or_error(api_id, get_current_user_id())
+        if api_error:
+            return api_error
+        run = get_latest_training_run_from_db(api_id, user_id=get_current_user_id())
+        if not run:
+            return jsonify({"error": "No training runs found"}), 404
+        return jsonify(run)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/notify/whatsapp/send", methods=["POST"])
+@require_subscriber_api
+def notify_whatsapp_send():
+    if db is None:
+        return jsonify({"error": "Database not connected"}), 500
+
+    payload = request.json or {}
+    phone_number = payload.get("phone_number")
+    api_id = payload.get("api_id")
+    alert_id = payload.get("alert_id")
+    if not phone_number or not api_id or not alert_id:
+        return jsonify({"error": "phone_number, api_id, and alert_id are required"}), 400
+    user_id = get_current_user_id()
+    api_doc, api_error = ensure_api_access_or_error(api_id, user_id)
+    if api_error:
+        return api_error
+
+    message_text = payload.get("message_text") or build_whatsapp_message(payload)
+    try:
+        success, response_data = dispatch_whatsapp_message(phone_number, message_text)
     except Exception as exc:
         return jsonify({"success": False, "error": str(exc)}), 500
 
@@ -455,243 +1274,158 @@ def notify_email_send():
     return jsonify({"success": True, "details": response_data})
 
 
-@app.route("/notify/email/receive", methods=["POST"])
-def notify_email_receive():
+@app.route("/notify/whatsapp/receive", methods=["POST"])
+def notify_whatsapp_receive():
     if db is None:
         return jsonify({"error": "Database not connected"}), 500
 
     payload = request.json or {}
-    email_address = payload.get("email_address")
+    phone_number = payload.get("phone_number")
     message_body = payload.get("message_body")
     timestamp = payload.get("timestamp")
     api_id = payload.get("api_id")
     alert_id = payload.get("alert_id")
 
-    if not email_address or not message_body:
-        return jsonify({"error": "email_address and message_body are required"}), 400
+    if not phone_number or not message_body:
+        return jsonify({"error": "phone_number and message_body are required"}), 400
 
-    response_type = normalize_email_response(message_body)
+    response_type = normalize_whatsapp_response(message_body)
     response_doc = {
-        "email_address": email_address,
+        "phone_number": phone_number,
         "api_id": api_id,
         "alert_id": alert_id,
         "response": response_type,
-        "channel": "email",
+        "channel": "whatsapp",
         "raw_message": message_body,
         "timestamp": timestamp or datetime.utcnow().isoformat() + "Z"
     }
     stored = persist_worker_response(response_doc)
-    update_alert_worker_ack(alert_id, response_type, "email", response_doc["timestamp"])
+    update_alert_worker_ack(alert_id, response_type, "whatsapp", response_doc["timestamp"])
 
     return jsonify({"success": True, "worker_response": stored})
 
- # --- Advanced Monitor Minimal Fast Endpoints ---
- @app.route("/api/advanced/monitors")
- def advanced_get_monitors():
-     if db is None:
-         return jsonify({"error": "Database not connected"}), 500
-     try:
-         monitors = []
-         for doc in db.monitored_apis.find():
-             d = dict(doc)
-             d = serialize_objectid(d)
-             d.setdefault("api_name", d.get("name") or d.get("url"))
-             d.setdefault("priority", d.get("priority", "medium"))
-             d.setdefault("impact_score", d.get("impact_score", 50))
-             d.setdefault("last_status", d.get("last_status", "Pending"))
-             # numeric defaults
-             try:
-                 d["avg_latency_24h"] = float(d.get("avg_latency_24h", 0.0))
-             except Exception:
-                 d["avg_latency_24h"] = 0.0
-             try:
-                 d["uptime_pct_24h"] = float(d.get("uptime_pct_24h", 0.0))
-             except Exception:
-                 d["uptime_pct_24h"] = 0.0
-             d.setdefault("recent_checks", [])
-             monitors.append(d)
-         return jsonify(monitors)
-     except Exception as exc:
-         return jsonify({"error": str(exc)}), 500
 
- @app.route("/api/advanced/history")
- def advanced_get_history():
-     if db is None:
-         return jsonify({"error": "Database not connected"}), 500
-     api_id = request.args.get("id")
-     if not api_id:
-         return jsonify({"error": "id is required"}), 400
-     try:
-         col = db.monitoring_logs
-         # Try string id first
-         cur = col.find({"api_id": api_id}).sort("timestamp", DESCENDING).limit(50)
-         history = list(cur)
-         if not history:
-             try:
-                 oid = ObjectId(api_id)
-                 history = list(col.find({"api_id": oid}).sort("timestamp", DESCENDING).limit(50))
-             except Exception:
-                 history = []
-         out = []
-         for h in history:
-             ts = h.get("timestamp")
-             if isinstance(ts, datetime):
-                 ts = ts.isoformat() + "Z"
-             out.append({
-                 "timestamp": ts,
-                 "is_up": bool(h.get("up", h.get("is_up", False))),
-                 "response_time": h.get("total_latency_ms") or h.get("response_time"),
-                 "status_code": h.get("status_code"),
-                 "error": h.get("error"),
-             })
-         return jsonify({"history": out, "total_pages": 1, "current_page": 1})
-     except Exception as exc:
-         return jsonify({"error": str(exc), "history": [], "total_pages": 1, "current_page": 1}), 500
+@app.route("/notify/sms/send", methods=["POST"])
+@require_subscriber_api
+def notify_sms_send():
+    if db is None:
+        return jsonify({"error": "Database not connected"}), 500
 
- @app.route("/api/advanced/add_monitor", methods=["POST"])
- def advanced_add_monitor():
-     if db is None:
-         return jsonify({"error": "Database not connected"}), 500
-     payload = request.json or {}
-     url = payload.get("url")
-     category = payload.get("category")
-     if not url or not category:
-         return jsonify({"error": "url and category are required"}), 400
-     try:
-         doc = {
-             "api_name": payload.get("api_name") or url,
-             "url": url,
-             "category": category,
-             "priority": payload.get("priority", "medium"),
-             "impact_score": int(payload.get("impact_score", 50)),
-             "emergency_contact": payload.get("emergency_contact"),
-             "fallback_url": payload.get("fallback_url"),
-             "check_interval": int(payload.get("check_interval", 30)),
-             "check_frequency_minutes": max(0.5, float(payload.get("check_interval", 30)) / 60.0),
-             "is_active": True,
-             "created_at": datetime.utcnow(),
-             "last_status": payload.get("last_status", "Pending"),
-         }
-         res = db.monitored_apis.insert_one(doc)
-         return jsonify({"success": True, "id": str(res.inserted_id)})
-     except Exception as exc:
-         return jsonify({"success": False, "error": str(exc)}), 500
+    payload = request.json or {}
+    phone_number = payload.get("phone_number")
+    api_id = payload.get("api_id")
+    alert_id = payload.get("alert_id")
+    if not phone_number or not api_id or not alert_id:
+        return jsonify({"error": "phone_number, api_id, and alert_id are required"}), 400
+    user_id = get_current_user_id()
+    api_doc, api_error = ensure_api_access_or_error(api_id, user_id)
+    if api_error:
+        return api_error
 
- @app.route("/api/advanced/update_monitor", methods=["POST"])
- def advanced_update_monitor():
-     if db is None:
-         return jsonify({"error": "Database not connected"}), 500
-     payload = request.json or {}
-     api_id = payload.get("id")
-     if not api_id:
-         return jsonify({"error": "id is required"}), 400
-     try:
-         # Build update fields only for provided keys
-         update_fields = {}
-         for key in [
-             "api_name", "url", "category", "priority", "impact_score",
-             "emergency_contact", "fallback_url", "header_name", "header_value",
-             "notification_email", "check_interval", "check_frequency_minutes"
-         ]:
-             if key in payload and payload.get(key) is not None:
-                 update_fields[key] = payload.get(key)
-         # Keep frequency coherence if only minutes provided
-         if "check_frequency_minutes" in update_fields and "check_interval" not in update_fields:
-             try:
-                 mins = float(update_fields["check_frequency_minutes"]) or 1.0
-                 update_fields["check_interval"] = int(max(10, mins * 60))
-             except Exception:
-                 pass
-         # Execute update
-         try:
-             res = db.monitored_apis.update_one({"_id": ObjectId(api_id)}, {"$set": update_fields})
-         except Exception:
-             res = db.monitored_apis.update_one({"id": api_id}, {"$set": update_fields})
-         return jsonify({"success": True, "modified": res.modified_count})
-     except Exception as exc:
-         return jsonify({"success": False, "error": str(exc)}), 500
+    message_text = payload.get("message_text") or build_sms_message(payload)
+    try:
+        success, response_data = dispatch_sms_message(phone_number, message_text)
+    except Exception as exc:
+        return jsonify({"success": False, "error": str(exc)}), 500
 
- @app.route("/api/advanced/delete_monitor", methods=["POST"])
- def advanced_delete_monitor():
-     if db is None:
-         return jsonify({"error": "Database not connected"}), 500
-     payload = request.json or {}
-     api_id = payload.get("id")
-     if not api_id:
-         return jsonify({"error": "id is required"}), 400
-     try:
-         # Try delete by string id then ObjectId
-         res = db.monitored_apis.delete_one({"_id": ObjectId(api_id)})
-     except Exception:
-         res = db.monitored_apis.delete_one({"id": api_id})
-     return jsonify({"success": True, "deleted": res.deleted_count})
+    if not success:
+        return jsonify({"success": False, "error": response_data}), 500
 
- @app.route("/api/advanced/log_details/<log_id>")
- def advanced_log_details(log_id):
-     if db is None:
-         return jsonify({"error": "Database not connected"}), 500
-     try:
-         col = db.monitoring_logs
-         try:
-             doc = col.find_one({"_id": ObjectId(log_id)})
-         except Exception:
-             doc = col.find_one({"id": log_id})
-         if not doc:
-             return jsonify({"error": "Log not found"}), 404
-         # Normalize fields expected by UI
-         url_type = doc.get("url_type")
-         if not url_type and doc.get("content_type"):
-             url_type = determine_url_type(doc.get("content_type"))
-         result = {
-             "url": doc.get("url"),
-             "url_type": url_type or "Unknown",
-             "timestamp": (doc.get("timestamp").isoformat() + "Z") if isinstance(doc.get("timestamp"), datetime) else doc.get("timestamp"),
-             "is_up": bool(doc.get("up", doc.get("is_up", False))),
-             "status_code": doc.get("status_code"),
-             "error_message": doc.get("error"),
-             "total_latency_ms": doc.get("total_latency_ms"),
-             "dns_latency_ms": doc.get("dns_latency_ms"),
-             "tcp_latency_ms": doc.get("tcp_latency_ms"),
-             "tls_latency_ms": doc.get("tls_latency_ms"),
-             "server_processing_latency_ms": doc.get("server_processing_latency_ms"),
-             "content_download_latency_ms": doc.get("content_download_latency_ms"),
-         }
-         # Map certificate fields if present in nested structure
-         cert = doc.get("certificate_details") or {}
-         if isinstance(cert, dict):
-             result.update({
-                 "tls_cert_subject": cert.get("subject"),
-                 "tls_cert_issuer": cert.get("issuer"),
-                 "tls_cert_sans": cert.get("sans"),
-                 "tls_cert_valid_from": cert.get("valid_from"),
-                 "tls_cert_valid_until": cert.get("valid_until"),
-             })
-         return jsonify(result)
-     except Exception as exc:
-         return jsonify({"error": str(exc)}), 500
+    return jsonify({"success": True, "details": response_data})
 
- @app.route("/api/alerts/timeline")
- def alerts_timeline():
-     if db is None:
-         return jsonify({"alerts": []})
-     try:
-         cur = db.alert_history.find().sort("created_at", DESCENDING).limit(25)
-         alerts = []
-         for a in cur:
-             item = {
-                 "type": a.get("type", "alert"),
-                 "severity": a.get("severity", "medium"),
-                 "message": a.get("message") or a.get("summary") or "",
-                 "timestamp": (a.get("created_at").isoformat() + "Z") if isinstance(a.get("created_at"), datetime) else a.get("created_at"),
-                 "api_id": str(a.get("api_id")) if a.get("api_id") else None,
-                 "api_url": a.get("api_url"),
-             }
-             alerts.append(item)
-         return jsonify({"alerts": alerts})
-     except Exception:
-         return jsonify({"alerts": []})
+
+@app.route("/notify/sms/receive", methods=["POST"])
+def notify_sms_receive():
+    if db is None:
+        return jsonify({"error": "Database not connected"}), 500
+
+    payload = request.json or {}
+    phone_number = payload.get("phone_number")
+    message_body = payload.get("message_body")
+    timestamp = payload.get("timestamp")
+    api_id = payload.get("api_id")
+    alert_id = payload.get("alert_id")
+
+    if not phone_number or not message_body:
+        return jsonify({"error": "phone_number and message_body are required"}), 400
+
+    response_type = normalize_whatsapp_response(message_body)
+    response_doc = {
+        "phone_number": phone_number,
+        "api_id": api_id,
+        "alert_id": alert_id,
+        "response": response_type,
+        "channel": "sms",
+        "raw_message": message_body,
+        "timestamp": timestamp or datetime.utcnow().isoformat() + "Z"
+    }
+    stored = persist_worker_response(response_doc)
+    update_alert_worker_ack(alert_id, response_type, "sms", response_doc["timestamp"])
+
+    return jsonify({"success": True, "worker_response": stored})
+
+
+@app.route("/notify/ivr/call", methods=["POST"])
+@require_subscriber_api
+def notify_ivr_call():
+    if db is None:
+        return jsonify({"error": "Database not connected"}), 500
+
+    payload = request.json or {}
+    phone_number = payload.get("phone_number")
+    api_id = payload.get("api_id")
+    alert_id = payload.get("alert_id")
+    if not phone_number or not api_id or not alert_id:
+        return jsonify({"error": "phone_number, api_id, and alert_id are required"}), 400
+    user_id = get_current_user_id()
+    api_doc, api_error = ensure_api_access_or_error(api_id, user_id)
+    if api_error:
+        return api_error
+
+    try:
+        success, response_data = dispatch_ivr_call(phone_number, payload)
+    except Exception as exc:
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+    if not success:
+        return jsonify({"success": False, "error": response_data}), 500
+
+    return jsonify({"success": True, "details": response_data})
+
+
+@app.route("/notify/ivr/collect", methods=["POST"])
+def notify_ivr_collect():
+    if db is None:
+        return jsonify({"error": "Database not connected"}), 500
+
+    payload = request.json or {}
+    digit = payload.get("digit")
+    phone_number = payload.get("phone_number")
+    api_id = payload.get("api_id")
+    alert_id = payload.get("alert_id")
+    timestamp = payload.get("timestamp")
+
+    if digit is None or not phone_number:
+        return jsonify({"error": "digit and phone_number are required"}), 400
+
+    response_type = normalize_ivr_input(digit)
+    response_doc = {
+        "phone_number": phone_number,
+        "api_id": api_id,
+        "alert_id": alert_id,
+        "response": response_type,
+        "channel": "ivr",
+        "raw_message": digit,
+        "timestamp": timestamp or datetime.utcnow().isoformat() + "Z"
+    }
+    stored = persist_worker_response(response_doc)
+    update_alert_worker_ack(alert_id, response_type, "ivr", response_doc["timestamp"])
+
+    return jsonify({"success": True, "worker_response": stored})
+
 
 @app.route("/utils/translate", methods=["POST"])
+@require_subscriber_api
 def utils_translate():
     payload = request.json or {}
     text = payload.get("text")
@@ -705,6 +1439,7 @@ def utils_translate():
 
 
 @app.route("/incident/acknowledge", methods=["POST"])
+@require_logged_in_api
 def incident_acknowledge():
     if db is None:
         return jsonify({"error": "Database not connected"}), 500
@@ -726,6 +1461,7 @@ def incident_acknowledge():
     response_doc = {
         "phone_number": payload.get("phone_number"),
         "worker_id": worker_id,
+        "user_id": get_current_user_id(),
         "api_id": api_id,
         "alert_id": alert_id,
         "response": response_type,
@@ -782,6 +1518,100 @@ def get_certificate_details_crypto(url):
         return {"error": f"Cert check failed: {str(e)}"}
 
 # --- URL Type Determination ---
+def perform_network_speed_check(timeout=6, test_url=None):
+    """
+    Quick internet connectivity + speed sanity check.
+    Returns latency and estimated download throughput.
+    """
+    urls = [u.strip() for u in (test_url or NETWORK_TEST_URLS).split(",") if u.strip()]
+    if not urls:
+        urls = [NETWORK_TEST_URL]
+
+    last_error = None
+    last_result = None
+
+    for url in urls:
+        result = {
+            "network_up": False,
+            "latency_ms": None,
+            "download_mbps": None,
+            "status_code": None,
+            "error": None,
+            "timestamp": now_isoutc(),
+            "test_url": url
+        }
+
+        buffer = io.BytesIO()
+        c = pycurl.Curl()
+        c.setopt(c.URL, url)
+        c.setopt(c.WRITEDATA, buffer)
+        c.setopt(c.TIMEOUT, timeout)
+        c.setopt(c.FOLLOWLOCATION, 1)
+
+        try:
+            c.perform()
+            total_time = max(c.getinfo(c.TOTAL_TIME), 1e-6)
+            status_code = int(c.getinfo(c.RESPONSE_CODE))
+            size_download = c.getinfo(c.SIZE_DOWNLOAD)
+            if not size_download:
+                size_download = len(buffer.getvalue())
+
+            latency_ms = total_time * 1000.0
+            # Megabits per second
+            download_mbps = (size_download * 8.0) / (total_time * 1_000_000.0)
+
+            # NOTE:
+            # Endpoints like /generate_204 intentionally return tiny/empty payloads.
+            # In that case, treat throughput as informational and do not fail connectivity.
+            enforce_speed = float(size_download) >= 1024.0 and NETWORK_MIN_DOWNLOAD_MBPS > 0
+            speed_ok = (download_mbps >= NETWORK_MIN_DOWNLOAD_MBPS) if enforce_speed else True
+            latency_ok = latency_ms <= NETWORK_MAX_LATENCY_MS
+            status_ok = 200 <= status_code < 500
+            network_up = status_ok and latency_ok and speed_ok
+
+            result.update({
+                "network_up": network_up,
+                "latency_ms": round(latency_ms, 2),
+                "download_mbps": round(download_mbps, 3),
+                "status_code": status_code
+            })
+
+            if network_up:
+                c.close()
+                return result
+
+            if not status_ok:
+                last_error = f"status {status_code}"
+            elif not latency_ok:
+                last_error = f"high latency {latency_ms:.1f}ms"
+            elif not speed_ok:
+                last_error = f"low speed {download_mbps:.3f}Mbps"
+            else:
+                last_error = "connectivity check failed"
+            result["error"] = last_error
+            last_result = result
+
+        except pycurl.error as e:
+            last_error = f"{e}"
+            result["error"] = last_error
+            last_result = result
+        finally:
+            c.close()
+
+    if last_result:
+        return last_result
+
+    return {
+        "network_up": False,
+        "latency_ms": None,
+        "download_mbps": None,
+        "status_code": None,
+        "error": last_error or "No network test URL configured",
+        "timestamp": now_isoutc(),
+        "test_url": None
+    }
+
+
 def determine_url_type(content_type):
     """Determines the type of URL based on its Content-Type header."""
     if not content_type:
@@ -800,7 +1630,7 @@ def determine_url_type(content_type):
     return "Resource"
 
 # --- Core Latency Check using pycurl ---
-def perform_latency_check(url, headers=None, timeout=10, body_snippet_len=500, required_body_substring=None):
+def perform_latency_check(url, headers=None, timeout=10, body_snippet_len=1000, required_body_substring=None):
     if headers is None: headers = {}
     
     result = {
@@ -940,20 +1770,40 @@ def _extract_certificate_from_curl(url, curl_handle):
 # --- Background Worker for Advanced Monitoring ---
 def monitor_worker(sleep_seconds=30):
     print("🚀 Advanced Monitoring worker started.")
+    alert_manager = None
+    ai_alert_manager = None
     while True:
         try:
             if db is None:
                 print("[Monitor] MongoDB not connected, skipping check cycle")
                 time.sleep(sleep_seconds)
                 continue
-                
+
+            if alert_manager is None:
+                alert_manager = AlertManager(db)
+            if ai_alert_manager is None:
+                ai_alert_manager = AIAlertManager(db)
+
             monitored_apis = db.monitored_apis
             monitoring_logs = db.monitoring_logs
-            
+            network_check = perform_network_speed_check(timeout=NETWORK_TEST_TIMEOUT_SECONDS)
+            # Treat network as available unless we have an explicit transport error.
+            # This avoids false "Low Network" on zero-byte connectivity endpoints.
+            network_is_up = bool(network_check.get("network_up") or not network_check.get("error"))
+            if not network_is_up:
+                print(
+                    f"[Network] Connectivity check failed: "
+                    f"latency={network_check.get('latency_ms')}ms, "
+                    f"download={network_check.get('download_mbps')}Mbps, "
+                    f"error={network_check.get('error')}"
+                )
+
             apis = list(monitored_apis.find({"is_active": True}))
 
             for api in apis:
                 try:
+                    api_user_id = api.get("user_id", "default_user")
+                    user_plan = get_user_plan_by_id(api_user_id)
                     now = datetime.utcnow()
                     should_check = True
                     last_checked = api.get("last_checked_at")
@@ -964,6 +1814,10 @@ def monitor_worker(sleep_seconds=30):
                             freq = 1.0
                     except (TypeError, ValueError):
                         freq = 1.0
+
+                    # Enforce subscription frequency restrictions at runtime.
+                    if is_premium_frequency(freq) and not is_subscriber(user_plan):
+                        freq = 1.0  # fallback to 1 minute for free tier
 
                     if last_checked:
                         try:
@@ -992,8 +1846,13 @@ def monitor_worker(sleep_seconds=30):
                     if res.get("body_snippet"):
                         body_snippet_compressed = compress_data(res.get("body_snippet"))
 
+                    low_network_for_check = (not res.get("up")) and (not network_is_up)
+                    if low_network_for_check:
+                        res["error"] = f"Low network: {network_check.get('error') or res.get('error') or 'connectivity issue'}"
+
                     log_entry = {
                         "api_id": str(api["_id"]),
+                        "user_id": api_user_id,
                         "timestamp": ts,
                         "status_code": res.get("status_code"),
                         "is_up": res.get("up"),
@@ -1006,7 +1865,15 @@ def monitor_worker(sleep_seconds=30):
                         "error_message": res.get("error"),
                         "content_type": res.get("content_type"),
                         "body_snippet_compressed": body_snippet_compressed,
-                        "url_type": res.get("url_type"),
+                        "url_type": "Network" if low_network_for_check else res.get("url_type"),
+                        "check_skipped": low_network_for_check,
+                        "skip_reason": "network_unavailable" if low_network_for_check else None,
+                        "network_is_up": network_is_up,
+                        "network_latency_ms": network_check.get("latency_ms"),
+                        "network_download_mbps": network_check.get("download_mbps"),
+                        "network_status_code": network_check.get("status_code"),
+                        "network_error": network_check.get("error"),
+                        "network_test_url": network_check.get("test_url"),
                         "tls_cert_subject": cert.get("subject"),
                         "tls_cert_issuer": cert.get("issuer"),
                         "tls_cert_sans": cert.get("sans"),
@@ -1014,6 +1881,14 @@ def monitor_worker(sleep_seconds=30):
                         "tls_cert_valid_until": cert.get("valid_until"),
                         "tls_cipher": cert.get("cipher")
                     }
+
+                    if not bool(log_entry.get("is_up")):
+                        root_cause_hint = classify_root_cause(log_entry)
+                        log_entry["root_cause_hint"] = root_cause_hint
+                        log_entry["root_cause_details"] = ROOT_CAUSE_DESCRIPTIONS.get(root_cause_hint, ROOT_CAUSE_DESCRIPTIONS["unknown"])
+                    else:
+                        log_entry["root_cause_hint"] = None
+                        log_entry["root_cause_details"] = None
 
                     result = monitoring_logs.insert_one(log_entry)
                     log_entry["_id"] = result.inserted_id
@@ -1027,35 +1902,56 @@ def monitor_worker(sleep_seconds=30):
                     
                     # System 1: Immediate downtime/recovery alerting
                     try:
-                        alert_manager = AlertManager(db)
                         # Use same status logic as monitoring
-                        current_status = "Up" if res.get("up") else ("Error" if res.get("error") else "Down")
-                        alert_result = alert_manager.check_and_alert(
-                            str(api["_id"]), 
-                            api["url"], 
-                            current_status
+                        current_status = (
+                            "Low Network"
+                            if low_network_for_check
+                            else ("Up" if res.get("up") else ("Error" if res.get("error") else "Down"))
                         )
-                        if alert_result:
-                            print(f"[Alert] Downtime/Recovery alert: {alert_result.get('message', 'Success')}")
+                        if current_status != "Low Network":
+                            alert_result = alert_manager.check_and_alert(
+                                str(api["_id"]),
+                                api["url"],
+                                current_status
+                            )
+                            if alert_result:
+                                print(f"[Alert] Downtime/Recovery alert: {alert_result.get('message', 'Success')}")
                     except Exception as alert_err:
                         print(f"[Alert] Error: {alert_err}")
                     
-                    # System 2: AI predictive alerting (every 15 mins)
+                    # System 2: AI predictive alerting (every 20 mins)
                     try:
-                        ai_alert_manager = AIAlertManager(db)
-                        ai_alert_result = ai_alert_manager.check_and_alert(
-                            str(api["_id"]),
-                            api["url"]
-                        )
-                        if ai_alert_result:
-                            print(f"[AI Alert] Prediction alert: {ai_alert_result.get('message', 'Success')}")
+                        if not low_network_for_check:
+                            ai_alert_result = ai_alert_manager.check_and_alert(
+                                str(api["_id"]),
+                                api["url"]
+                            )
+                            if ai_alert_result:
+                                print(f"[AI Alert] Prediction alert: {ai_alert_result.get('message', 'Success')}")
                     except Exception as ai_err:
                         print(f"[AI Alert] Error: {ai_err}")
 
-                    new_status = "Up" if res.get("up") else ("Error" if res.get("error") else "Down")
+                    new_status = "Low Network" if low_network_for_check else ("Up" if res.get("up") else ("Error" if res.get("error") else "Down"))
+                    slo_metrics = compute_slo_metrics(str(api["_id"]))
+                    sync_burn_rate_alert(str(api["_id"]), api["url"], slo_metrics, user_id=api_user_id)
                     monitored_apis.update_one(
                         {"_id": api["_id"]},
-                        {"$set": {"last_checked_at": ts, "last_status": new_status}}
+                        {"$set": {
+                            "last_checked_at": ts,
+                            "last_status": new_status,
+                            "last_network_latency_ms": network_check.get("latency_ms"),
+                            "last_network_download_mbps": network_check.get("download_mbps"),
+                            "last_network_error": network_check.get("error"),
+                            "last_root_cause_hint": log_entry.get("root_cause_hint"),
+                            "last_root_cause_details": log_entry.get("root_cause_details"),
+                            "slo_target_uptime_pct": slo_metrics.get("slo_target_uptime_pct"),
+                            "p95_latency_24h": slo_metrics.get("p95_latency_24h"),
+                            "error_budget_remaining_pct": slo_metrics.get("error_budget_remaining_pct"),
+                            "burn_rate_1h": slo_metrics.get("burn_rate_1h"),
+                            "burn_rate_6h": slo_metrics.get("burn_rate_6h"),
+                            "burn_rate_alert_level": slo_metrics.get("burn_rate_alert_level"),
+                            "burn_rate_alert_message": slo_metrics.get("burn_rate_alert_message"),
+                        }}
                     )
 
                 except Exception as e_inner:
@@ -1067,6 +1963,337 @@ def monitor_worker(sleep_seconds=30):
         time.sleep(sleep_seconds)
 
 # --- ROUTING AND ENDPOINTS ---
+def get_current_user():
+    if db is None:
+        return None
+    user_id = session.get("user_id")
+    if not user_id:
+        return None
+    try:
+        user = db.auth_users.find_one({"_id": ObjectId(user_id)})
+    except Exception:
+        return None
+    return user
+
+
+def auth_user_payload(user):
+    if not user:
+        return None
+    plan = normalize_subscription_plan(user.get("subscription_plan"))
+    return {
+        "id": str(user.get("_id")),
+        "email": user.get("email"),
+        "name": user.get("name"),
+        "is_verified": bool(user.get("is_verified")),
+        "subscription_plan": plan,
+        "subscription_features": subscription_features(plan),
+        "created_at": user.get("created_at"),
+        "last_login_at": user.get("last_login_at"),
+    }
+
+
+@app.before_request
+def enforce_authentication():
+    path = request.path or "/"
+    public_exact = {"/", "/ai_showcase", "/check_api", "/last_logs", "/monitored_urls", "/chart_data", "/auth", "/auth/login-page"}
+    public_prefixes = ("/static/", "/static_advanced/", "/auth/", "/favicon.ico")
+    if path in public_exact or any(path.startswith(prefix) for prefix in public_prefixes):
+        return None
+
+    advanced_protected = (
+        path.startswith("/advanced_monitor")
+        or path.startswith("/api/advanced/")
+        or path.startswith("/api/github/")
+        or path.startswith("/api/sync/")
+        or path.startswith("/api/context/")
+        or path.startswith("/api/alert-status/")
+        or path.startswith("/api/incidents")
+        or path.startswith("/api/worker-responses/")
+        or path.startswith("/incident/")
+        or path.startswith("/utils/translate")
+        or (
+            path.startswith("/api/ai/")
+            and not path.startswith("/api/ai/training_runs")
+        )
+    )
+
+    if advanced_protected and not session.get("user_id"):
+        if path.startswith("/api/") or path.startswith("/notify/") or path.startswith("/incident/") or path.startswith("/utils/"):
+            return jsonify({"error": "Authentication required"}), 401
+        return redirect("/auth")
+
+    if not AUTH_REQUIRED:
+        return None
+
+    if session.get("user_id"):
+        return None
+
+    if path.startswith("/api/") or path.startswith("/notify/") or path.startswith("/incident/"):
+        return jsonify({"error": "Authentication required"}), 401
+    return redirect("/auth")
+
+
+@app.route("/auth")
+@app.route("/auth/login-page")
+def serve_auth_page():
+    return send_from_directory(SIMPLE_STATIC_DIR, "auth.html")
+
+
+@app.route("/auth/register", methods=["POST"])
+def auth_register():
+    if db is None:
+        return jsonify({"error": "Database not connected"}), 500
+
+    data = request.json or {}
+    email = normalize_email(data.get("email"))
+    password = data.get("password") or ""
+    name = (data.get("name") or "").strip() or email.split("@")[0]
+    requested_plan = normalize_subscription_plan(data.get("subscription_plan"))
+
+    if not is_valid_email(email):
+        return jsonify({"error": "Valid email is required"}), 400
+    if len(password) < 8:
+        return jsonify({"error": "Password must be at least 8 characters"}), 400
+
+    existing = db.auth_users.find_one({"email": email})
+    if existing:
+        if AUTH_REQUIRE_EMAIL_VERIFICATION and not existing.get("is_verified"):
+            token = build_email_verification_token(email)
+            sent, error = send_verification_email(email, token)
+            db.auth_users.update_one(
+                {"_id": existing["_id"]},
+                {"$set": {"verification_sent_at": now_isoutc(), "email_delivery_error": error, "updated_at": now_isoutc()}},
+            )
+            payload = build_verification_delivery_payload(
+                {
+                    "success": True,
+                    "message": "Email already registered but not verified. Verification has been re-issued.",
+                },
+                token,
+                sent,
+                error,
+            )
+            return jsonify(payload), 200
+        return jsonify({"error": "Email already registered"}), 409
+
+    now = now_isoutc()
+    user_doc = {
+        "email": email,
+        "name": name,
+        "password_hash": generate_password_hash(password),
+        "is_verified": not AUTH_REQUIRE_EMAIL_VERIFICATION,
+        "subscription_plan": requested_plan if requested_plan == "subscriber" else "free",
+        "subscription_status": "active",
+        "created_at": now,
+        "updated_at": now,
+        "last_login_at": None,
+    }
+    result = db.auth_users.insert_one(user_doc)
+    user_doc["_id"] = result.inserted_id
+
+    if AUTH_REQUIRE_EMAIL_VERIFICATION:
+        token = build_email_verification_token(email)
+        sent, error = send_verification_email(email, token)
+        db.auth_users.update_one(
+            {"_id": user_doc["_id"]},
+            {"$set": {"verification_sent_at": now_isoutc(), "email_delivery_error": error}},
+        )
+        payload = build_verification_delivery_payload(
+            {
+            "success": True,
+            "message": "Registered. Verify your email before login.",
+            },
+            token,
+            sent,
+            error,
+        )
+        return jsonify(payload), 201
+
+    session.permanent = True
+    session["user_id"] = str(user_doc["_id"])
+    return jsonify({"success": True, "user": auth_user_payload(user_doc)}), 201
+
+
+@app.route("/auth/resend-verification", methods=["POST"])
+def auth_resend_verification():
+    if db is None:
+        return jsonify({"error": "Database not connected"}), 500
+
+    data = request.json or {}
+    email = normalize_email(data.get("email"))
+    if not is_valid_email(email):
+        return jsonify({"error": "Valid email is required"}), 400
+
+    user = db.auth_users.find_one({"email": email})
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    if user.get("is_verified"):
+        return jsonify({"success": True, "message": "Email already verified"}), 200
+
+    token = build_email_verification_token(email)
+    sent, error = send_verification_email(email, token)
+    db.auth_users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"verification_sent_at": now_isoutc(), "email_delivery_error": error}},
+    )
+    payload = build_verification_delivery_payload(
+        {
+            "success": True,
+            "message": "Verification email sent" if sent else "Verification link generated for local use",
+        },
+        token,
+        sent,
+        error,
+    )
+    return jsonify(payload), 200
+
+
+@app.route("/auth/verify-email", methods=["GET"])
+def auth_verify_email():
+    if db is None:
+        return jsonify({"error": "Database not connected"}), 500
+
+    token = request.args.get("token", "")
+    if not token:
+        return jsonify({"error": "Verification token is required"}), 400
+
+    try:
+        email = read_email_verification_token(token)
+    except SignatureExpired:
+        return jsonify({"error": "Verification token expired"}), 400
+    except BadSignature:
+        return jsonify({"error": "Invalid verification token"}), 400
+
+    update = db.auth_users.update_one(
+        {"email": email},
+        {
+            "$set": {
+                "is_verified": True,
+                "verified_at": now_isoutc(),
+                "updated_at": now_isoutc(),
+            }
+        },
+    )
+    if update.matched_count == 0:
+        return jsonify({"error": "User not found"}), 404
+
+    return jsonify({"success": True, "message": "Email verified successfully"})
+
+
+@app.route("/auth/login", methods=["POST"])
+def auth_login():
+    if db is None:
+        return jsonify({"error": "Database not connected"}), 500
+
+    data = request.json or {}
+    email = normalize_email(data.get("email"))
+    password = data.get("password") or ""
+    if not email or not password:
+        return jsonify({"error": "Email and password are required"}), 400
+
+    user = db.auth_users.find_one({"email": email})
+    if not user or not check_password_hash(user.get("password_hash", ""), password):
+        return jsonify({"error": "Invalid email or password"}), 401
+
+    if AUTH_REQUIRE_EMAIL_VERIFICATION and not user.get("is_verified"):
+        token = build_email_verification_token(email)
+        sent, error = send_verification_email(email, token)
+        db.auth_users.update_one(
+            {"_id": user["_id"]},
+            {"$set": {"verification_sent_at": now_isoutc(), "email_delivery_error": error, "updated_at": now_isoutc()}},
+        )
+        payload = build_verification_delivery_payload(
+            {
+                "error": "Email is not verified",
+                "message": "Verification email sent. Please verify and login again." if sent else "Email is not verified. Use verification link below for local setup.",
+            },
+            token,
+            sent,
+            error,
+        )
+        return jsonify(payload), 403
+
+    session.permanent = True
+    session["user_id"] = str(user["_id"])
+    session["user_email"] = user.get("email")
+    db.auth_users.update_one({"_id": user["_id"]}, {"$set": {"last_login_at": now_isoutc()}})
+    user["last_login_at"] = now_isoutc()
+    return jsonify({"success": True, "user": auth_user_payload(user)})
+
+
+@app.route("/auth/logout", methods=["POST"])
+def auth_logout():
+    session.clear()
+    return jsonify({"success": True})
+
+
+@app.route("/auth/me", methods=["GET"])
+def auth_me():
+    user = get_current_user()
+    if not user:
+        return jsonify({"authenticated": False}), 200
+    return jsonify({"authenticated": True, "user": auth_user_payload(user)})
+
+
+@app.route("/auth/subscription", methods=["GET"])
+@require_logged_in_api
+def auth_get_subscription():
+    user = get_current_user()
+    plan = normalize_subscription_plan(user.get("subscription_plan"))
+    return jsonify({
+        "success": True,
+        "subscription": {
+            "plan": plan,
+            "status": user.get("subscription_status", "active"),
+            "features": subscription_features(plan),
+        }
+    })
+
+
+@app.route("/auth/subscription", methods=["POST"])
+@require_logged_in_api
+def auth_set_subscription():
+    if db is None:
+        return jsonify({"error": "Database not connected"}), 500
+    user = get_current_user()
+    data = request.json or {}
+    plan = normalize_subscription_plan(data.get("plan"))
+    db.auth_users.update_one(
+        {"_id": user["_id"]},
+        {
+            "$set": {
+                "subscription_plan": plan,
+                "subscription_status": "active",
+                "subscription_updated_at": now_isoutc(),
+            }
+        }
+    )
+    return jsonify({
+        "success": True,
+        "subscription": {
+            "plan": plan,
+            "status": "active",
+            "features": subscription_features(plan),
+        }
+    })
+
+
+@app.route("/api/subscription/capacity", methods=["GET"])
+@require_logged_in_api
+def estimate_subscription_capacity():
+    rps = request.args.get("rps", type=float, default=0.0)
+    interval_seconds = request.args.get("interval_seconds", type=float, default=0.0)
+    if rps <= 0 or interval_seconds <= 0:
+        return jsonify({"error": "rps and interval_seconds must be greater than 0"}), 400
+    max_apis = int(rps * interval_seconds)
+    return jsonify({
+        "rps": rps,
+        "interval_seconds": interval_seconds,
+        "max_apis_estimate": max_apis,
+        "formula": "max_apis = rps * interval_seconds",
+    })
+
+
 @app.route("/")
 def serve_index(): 
     return send_from_directory(SIMPLE_STATIC_DIR, "index.html")
@@ -1092,466 +2319,6 @@ def serve_advanced_proxy(text):
 def serve_static_advanced(filename): 
     return send_from_directory(ADVANCED_STATIC_DIR, filename)
 
-@app.route("/api/contacts", methods=["GET", "POST", "DELETE"])
-def manage_contacts():
-    if db is None:
-        return jsonify({"error": "Database not connected"}), 500
-    
-    contacts_collection = db.contacts
-    
-    if request.method == "GET":
-        contacts = list(contacts_collection.find({}, {"_id": 0}))
-        return jsonify({"contacts": contacts})
-    
-    elif request.method == "POST":
-        contact = request.json or {}
-        if not contact.get("email") or not contact.get("name"):
-            return jsonify({"error": "Name and email are required"}), 400
-        
-        contact["created_at"] = datetime.now(timezone.utc)
-        result = contacts_collection.insert_one(contact)
-        return jsonify({"success": True, "id": str(result.inserted_id)})
-    
-    elif request.method == "DELETE":
-        contact_id = request.args.get("id")
-        if not contact_id:
-            return jsonify({"error": "Contact ID is required"}), 400
-        
-        try:
-            contacts_collection.delete_one({"_id": ObjectId(contact_id)})
-            return jsonify({"success": True})
-        except:
-            return jsonify({"error": "Invalid contact ID"}), 400
-
-
-def send_api_down_alert(api_url, api_name=None, status="down", error_message=None):
-    """Send email alerts to contacts monitoring this API with AI predictions and translations."""
-    if db is None:
-        return
-    
-    contacts_collection = db.contacts
-    # Find contacts who are monitoring this API - check multiple fields
-    contacts = list(contacts_collection.find({
-        "$or": [
-            {"apis": {"$in": [api_url]}},
-            {"apis": {"$in": [api_name]}},
-            {"apis": {"$in": [api_url.split('/')[2] if '/' in api_url else api_url]}},  # Domain matching
-            {"apis": {"$regex": api_url, "$options": "i"}}  # Partial match
-        ]
-    }))
-    
-    if not contacts:
-        print(f"No contacts found monitoring API: {api_url}")
-        return
-    
-    print(f"Found {len(contacts)} contacts for API {api_url}: {[c['email'] for c in contacts]}")
-    
-    # Get AI predictions for this API
-    ai_predictions = get_ai_predictions_for_api(api_url)
-    
-    # Send email to each contact with their preferred language
-    for contact in contacts:
-        try:
-            # Translate alert message to contact's preferred language
-            translated_message = translate_alert_message(
-                f"API {status} alert for {api_name or api_url}",
-                contact.get("language", "EN")
-            )
-            
-            # Create email payload with AI predictions
-            email_payload = {
-                "api_url": api_url,
-                "api_name": api_name or api_url,
-                "status": status,
-                "error_message": error_message,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "alert_type": "api_down" if status == "down" else "api_up",
-                "contact_name": contact["name"],
-                "contact_language": contact.get("language", "EN"),
-                "translated_message": translated_message,
-                "ai_predictions": ai_predictions,
-                "github_issue_reference": generate_github_issue_reference(api_url, api_name)
-            }
-            
-            success, response = dispatch_email_message(contact["email"], email_payload)
-            
-            # Log to notifications collection
-            notifications = db.notifications
-            notification_doc = {
-                "channel": "email",
-                "email_address": contact["email"],
-                "contact_name": contact["name"],
-                "contact_language": contact.get("language", "EN"),
-                "message": translated_message,
-                "api_url": api_url,
-                "api_name": api_name,
-                "alert_type": email_payload["alert_type"],
-                "ai_predictions": ai_predictions,
-                "github_issue_ref": email_payload["github_issue_reference"],
-                "timestamp": datetime.now(timezone.utc),
-                "status": "sent" if success else "failed",
-                "details": error_message
-            }
-            if not success:
-                notification_doc["error"] = response
-            
-            notifications.insert_one(notification_doc)
-            
-        except Exception as e:
-            print(f"Error sending alert to {contact['email']}: {e}")
-            # Log failed attempt
-            notifications = db.notifications
-            notification_doc = {
-                "channel": "email",
-                "email_address": contact["email"],
-                "contact_name": contact["name"],
-                "contact_language": contact.get("language", "EN"),
-                "message": f"API {status} alert",
-                "api_url": api_url,
-                "api_name": api_name,
-                "alert_type": "api_down" if status == "down" else "api_up",
-                "timestamp": datetime.now(timezone.utc),
-                "status": "failed",
-                "error": str(e),
-                "details": error_message
-            }
-            notifications.insert_one(notification_doc)
-
-
-def get_ai_predictions_for_api(api_url):
-    """Get latest AI predictions for an API."""
-    try:
-        if db is None or "ai_predictions" not in db.list_collection_names():
-            return None
-        
-        # Get latest prediction for this API
-        prediction = db.ai_predictions.find_one(
-            {"api_id": api_url},
-            sort=[("timestamp", -1)]
-        )
-        
-        if prediction:
-            return {
-                "failure_probability": prediction.get("failure_probability", 0),
-                "confidence": prediction.get("confidence", 0),
-                "risk_level": prediction.get("risk_level", "UNKNOWN"),
-                "predicted_failure_time": prediction.get("predicted_failure_time"),
-                "last_updated": prediction.get("timestamp")
-            }
-        return None
-        
-    except Exception as e:
-        print(f"Error fetching AI predictions: {e}")
-        return None
-
-
-def translate_alert_message(message, target_language):
-    """Translate alert message to target language."""
-    try:
-        # Simple translation map for common languages
-        translations = {
-            "EN": message,
-            "TA": f"எச்சரிக்கை: {message}",  # Tamil prefix
-            "HI": f"चेतावनी: {message}",     # Hindi prefix
-            "ES": f"Alerta: {message}",       # Spanish
-            "FR": f"Alerte: {message}",       # French
-            "DE": f"Warnung: {message}",      # German
-            "ZH": f"警报: {message}",         # Chinese
-            "JA": f"警告: {message}",         # Japanese
-        }
-        
-        translated = translations.get(target_language.upper(), message)
-        
-        # For more complex translations, you could integrate with Google Translate API
-        # if TRANSLATION_API_KEY is available in environment
-        if target_language.upper() not in translations and os.getenv("TRANSLATION_API_KEY"):
-            try:
-                import requests
-                response = requests.post(
-                    f"https://translation.googleapis.com/language/translate/v2?key={os.getenv('TRANSLATION_API_KEY')}",
-                    json={
-                        "q": message,
-                        "source": "en",
-                        "target": target_language.lower()
-                    }
-                )
-                if response.status_code == 200:
-                    translated = response.json()["data"]["translations"][0]["translatedText"]
-            except:
-                pass  # Fallback to original message
-        
-        return translated
-        
-    except Exception as e:
-        print(f"Translation error: {e}")
-        return message
-
-
-def generate_github_issue_reference(api_url, api_name=None):
-    """Generate GitHub issue reference for API incidents."""
-    try:
-        # Create a unique issue ID based on timestamp and API
-        issue_id = f"API-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{hash(api_url) % 1000:03d}"
-        
-        # Generate GitHub-style issue URL (you would need to configure your repo)
-        github_repo = os.getenv("GITHUB_REPO", "your-org/your-repo")
-        issue_url = f"https://github.com/{github_repo}/issues/{issue_id}"
-        
-        return {
-            "issue_id": issue_id,
-            "issue_url": issue_url,
-            "title": f"API Incident: {api_name or api_url}",
-            "status": "open",
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-        
-    except Exception as e:
-        print(f"Error generating GitHub reference: {e}")
-        return {
-            "issue_id": f"API-{datetime.now(timezone.utc).strftime('%Y%m%d')}-001",
-            "issue_url": "#",
-            "title": f"API Incident: {api_name or api_url}",
-            "status": "open",
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-
-
-@app.route("/api/alerts/timeline", methods=["GET"])
-def get_alerts_timeline():
-    if db is None:
-        return jsonify({"alerts": []}), 500
-    
-    try:
-        # Get recent alerts from various collections
-        alerts = []
-        
-        # Get recent API checks (logs)
-        if "simple_logs" in db.list_collection_names():
-            simple_logs = db.simple_logs
-            recent_logs = list(simple_logs.find(
-                {"up": False},  # Only failed checks
-                {"_id": 0, "api_url": 1, "error": 1, "timestamp": 1}
-            ).sort("timestamp", -1).limit(10))
-            
-            for log in recent_logs:
-                alerts.append({
-                    "type": "api_down",
-                    "message": f"API check failed",
-                    "details": log.get("error", "Unknown error"),
-                    "api_url": log.get("api_url"),
-                    "timestamp": log.get("timestamp"),
-                    "severity": "high"
-                })
-        
-        # Get recent email notifications
-        if "notifications" in db.list_collection_names():
-            notifications = db.notifications
-            recent_emails = list(notifications.find(
-                {"channel": "email", "status": "sent"},
-                {"_id": 0, "email_address": 1, "message": 1, "timestamp": 1, "api_id": 1, "api_url": 1}
-            ).sort("timestamp", -1).limit(10))
-            
-            for email in recent_emails:
-                alerts.append({
-                    "type": "email_sent",
-                    "message": "Alert sent",
-                    "details": f"to {email.get('email_address')}",
-                    "api_id": email.get("api_id"),
-                    "api_url": email.get("api_url"),
-                    "timestamp": email.get("timestamp"),
-                    "severity": "medium"
-                })
-        
-        # Get AI predictions
-        if "ai_predictions" in db.list_collection_names():
-            ai_predictions = db.ai_predictions
-            recent_predictions = list(ai_predictions.find(
-                {"failure_probability": {"$gt": 0.5}},  # High risk predictions
-                {"_id": 0, "api_id": 1, "failure_probability": 1, "confidence": 1, "timestamp": 1}
-            ).sort("timestamp", -1).limit(10))
-            
-            for pred in recent_predictions:
-                risk_pct = pred.get("failure_probability", 0) * 100
-                alerts.append({
-                    "type": "ai_alert",
-                    "message": f"AI Alert: {risk_pct:.0f}% failure risk",
-                    "details": f"confidence: {pred.get('confidence', 0) * 100:.0f}%",
-                    "api_id": pred.get("api_id"),
-                    "timestamp": pred.get("timestamp"),
-                    "severity": "medium" if risk_pct < 70 else "high"
-                })
-        
-        # Add some sample data if no alerts exist
-        if not alerts:
-            alerts.append({
-                "type": "info",
-                "message": "System monitoring active",
-                "details": "No recent alerts to display",
-                "timestamp": datetime.now(timezone.utc),
-                "severity": "low"
-            })
-        
-        # Sort all alerts by timestamp
-        alerts.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
-        
-        return jsonify({"alerts": alerts[:20]})  # Return latest 20 alerts
-        
-    except Exception as e:
-        print(f"Error fetching alerts timeline: {e}")
-        return jsonify({"alerts": []}), 500
-
-
-@app.route("/api/ai/training_runs/<api_id>", methods=["GET"])
-def get_training_runs(api_id):
-    """Get AI training runs for a specific API."""
-    if db is None:
-        return jsonify([])
-    
-    try:
-        # Check if training data exists in ai_training_runs collection
-        if "ai_training_runs" in db.list_collection_names():
-            training_collection = db.ai_training_runs
-            runs = list(training_collection.find(
-                {"api_id": api_id},
-                {"_id": 0}
-            ).sort("started_at", -1).limit(15))
-            
-            if runs:
-                return jsonify(runs)
-        
-        # Generate sample training data if none exists
-        sample_runs = generate_sample_training_data(api_id)
-        
-        # Save sample data to database for future use
-        if "ai_training_runs" in db.list_collection_names():
-            training_collection = db.ai_training_runs
-            for run in sample_runs:
-                run["api_id"] = api_id
-                training_collection.insert_one(run.copy())
-        
-        return jsonify(sample_runs)
-        
-    except Exception as e:
-        print(f"Error fetching training runs: {e}")
-        return jsonify([])
-
-def generate_sample_training_data(api_id):
-    """Generate sample AI training data for demonstration."""
-    import random
-    from datetime import datetime, timedelta
-    
-    risk_factors_list = [
-        ["High response time variability", "Recent error rate increase", "SSL certificate expiring soon"],
-        ["Memory usage trending upward", "Database connection pool exhaustion", "Weekend downtime pattern"],
-        ["Third-party dependency latency", "Geographic routing issues", "Cache miss rate high"],
-        ["CPU utilization spikes", "Network packet loss", "Authentication token refresh failures"]
-    ]
-    
-    actions_list = [
-        ["Scale up resources", "Optimize database queries", "Implement caching"],
-        ["Update SSL certificates", "Add health checks", "Configure auto-retry"],
-        ["Load balancer reconfiguration", "Memory optimization", "Connection pooling"],
-        ["CDN configuration", "Database indexing", "API rate limiting"]
-    ]
-    
-    summaries = [
-        "Model training completed with 85% accuracy. API shows stable performance patterns.",
-        "Training detected potential failure risks. Recommended immediate actions implemented.",
-        "AI model updated with latest metrics. Performance improvements noted.",
-        "Training session identified critical risk factors. Preventive measures suggested."
-    ]
-    
-    runs = []
-    base_time = datetime.now(timezone.utc) - timedelta(days=30)
-    
-    for i in range(5):  # Generate 5 sample runs
-        start_time = base_time + timedelta(days=i*6, hours=random.randint(1, 23))
-        duration = random.uniform(45, 180)  # 45 seconds to 3 minutes
-        
-        run = {
-            "started_at": start_time.isoformat(),
-            "completed_at": (start_time + timedelta(seconds=duration)).isoformat(),
-            "duration_seconds": duration,
-            "status": "completed",
-            "failure_probability": random.uniform(0.1, 0.9),
-            "confidence": random.uniform(0.7, 0.95),
-            "risk_level": random.choice(["LOW", "MEDIUM", "HIGH", "CRITICAL"]),
-            "risk_factors": random.choice(risk_factors_list),
-            "actions": random.choice(actions_list),
-            "summary": random.choice(summaries),
-            "model_version": f"v2.{i+1}.0",
-            "training_samples": random.randint(1000, 5000),
-            "accuracy": random.uniform(0.75, 0.95),
-            "log_lines": [
-                f"Training started with {random.randint(1000, 5000)} samples",
-                f"Epoch {random.randint(10, 50)}: loss = {random.uniform(0.1, 0.5):.3f}",
-                f"Validation accuracy: {random.uniform(0.75, 0.95):.3f}",
-                "Model saved successfully",
-                "Training completed"
-            ]
-        }
-        runs.append(run)
-    
-    # Also generate some AI predictions for the timeline
-    generate_ai_predictions(api_id)
-    
-    return sorted(runs, key=lambda x: x["started_at"], reverse=True)
-
-def generate_ai_predictions(api_id):
-    """Generate sample AI predictions for the timeline."""
-    if db is None:
-        return
-    
-    try:
-        # Check if ai_predictions collection exists, if not create sample data
-        if "ai_predictions" not in db.list_collection_names():
-            ai_predictions = db.ai_predictions
-        else:
-            ai_predictions = db.ai_predictions
-            predictions = list(ai_predictions.find({"api_id": api_id}).limit(5))
-            
-            if len(predictions) >= 3:  # Already have enough predictions
-                return
-        
-        # Generate some sample predictions
-        import random
-        from datetime import datetime, timedelta
-        
-        for i in range(3):
-            pred_time = datetime.now(timezone.utc) - timedelta(hours=random.randint(1, 24))
-            prediction = {
-                "api_id": api_id,
-                "failure_probability": random.uniform(0.3, 0.85),
-                "confidence": random.uniform(0.6, 0.9),
-                "timestamp": pred_time,
-                "risk_level": random.choice(["LOW", "MEDIUM", "HIGH"]),
-                "predicted_failure_time": pred_time + timedelta(hours=random.randint(6, 48))
-            }
-            ai_predictions.insert_one(prediction)
-                
-    except Exception as e:
-        print(f"Error generating AI predictions: {e}")
-
-
-@app.route("/api/test-alert", methods=["POST"])
-def test_alert():
-    """Test endpoint to simulate API failure and trigger email alerts."""
-    data = request.json or {}
-    api_url = data.get("api_url")
-    if not api_url:
-        return jsonify({"error": "API URL is required"}), 400
-    
-    # Simulate API failure
-    send_api_down_alert(
-        api_url=api_url,
-        api_name=data.get("api_name"),
-        status="down",
-        error_message="Test alert - simulated API failure"
-    )
-    
-    return jsonify({"success": True, "message": f"Test alert sent for {api_url}"})
-
-
 @app.route("/check_api", methods=["POST"])
 def check_api():
     data = request.json or {}
@@ -1565,6 +2332,7 @@ def check_api():
     h_val = data.get("header_value")
     headers = {h_name: h_val} if h_name and h_val else {}
     required_body_substring = data.get("required_body_substring")
+    network_check = perform_network_speed_check(timeout=NETWORK_TEST_TIMEOUT_SECONDS)
 
     try:
         res = perform_latency_check(
@@ -1580,25 +2348,39 @@ def check_api():
             "error": f"Unexpected error during check: {e}",
             "up": False
         }
-        # Send alert to contacts monitoring this API
-        send_api_down_alert(
-            api_url=api_url,
-            api_name=data.get("api_name"),
-            status="down",
-            error_message=str(e)
-        )
         return jsonify(error_payload), 500
 
-    res.update({"api_url": api_url, "header_name": h_name or "", "header_value": h_val or ""})
-    
-    # Check if API is down and send alert
-    if not res.get("up", True):
-        send_api_down_alert(
-            api_url=api_url,
-            api_name=data.get("api_name"),
-            status="down",
-            error_message=res.get("error", "API check failed")
-        )
+    network_is_up = bool(network_check.get("network_up") or not network_check.get("error"))
+    if not network_is_up and not res.get("up"):
+        res["error"] = f"Low network: {network_check.get('error') or res.get('error') or 'connectivity issue'}"
+        res["url_type"] = "Network"
+        res["low_network"] = True
+    else:
+        res["low_network"] = False
+
+    res.update({
+        "api_url": api_url,
+        "header_name": h_name or "",
+        "header_value": h_val or "",
+        "network_check": network_check
+    })
+
+    if not bool(res.get("up")):
+        root_hint = classify_root_cause({
+            "status_code": res.get("status_code"),
+            "error_message": res.get("error"),
+            "is_up": res.get("up"),
+            "dns_latency_ms": res.get("dns_latency_ms"),
+            "tls_latency_ms": res.get("tls_latency_ms"),
+            "check_skipped": bool(res.get("low_network")),
+            "skip_reason": "network_unavailable" if bool(res.get("low_network")) else None,
+            "network_is_up": network_is_up,
+        })
+        res["root_cause_hint"] = root_hint
+        res["root_cause_details"] = ROOT_CAUSE_DESCRIPTIONS.get(root_hint, ROOT_CAUSE_DESCRIPTIONS["unknown"])
+    else:
+        res["root_cause_hint"] = None
+        res["root_cause_details"] = None
     
     # Save to MongoDB simple_logs collection
     if db is not None:
@@ -1674,278 +2456,53 @@ def chart_data():
         "data": [log.get("total_latency_ms") for log in logs]
     })
 
-# --- HEALTHCARE API CATEGORIES AND IMPACT SCORING ---
-
-HEALTHCARE_CATEGORIES = {
-    'emergency_dispatch': {
-        'priority': 'critical',
-        'impact_score': 95,
-        'icon': '🚨',
-        'description': 'Emergency Dispatch Services',
-        'check_interval': 10  # seconds
-    },
-    'life_support': {
-        'priority': 'critical',
-        'impact_score': 98,
-        'icon': '❤️',
-        'description': 'Life Support Systems',
-        'check_interval': 15
-    },
-    'emergency_alerts': {
-        'priority': 'critical',
-        'impact_score': 92,
-        'icon': '📢',
-        'description': 'Emergency Alert Broadcasting',
-        'check_interval': 20
-    },
-    'hospital_operations': {
-        'priority': 'high',
-        'impact_score': 80,
-        'icon': '🏥',
-        'description': 'Hospital Operations',
-        'check_interval': 30
-    },
-    'telemedicine': {
-        'priority': 'high',
-        'impact_score': 75,
-        'icon': '💻',
-        'description': 'Telemedicine Services',
-        'check_interval': 45
-    },
-    'vaccination': {
-        'priority': 'high',
-        'impact_score': 70,
-        'icon': '💉',
-        'description': 'Vaccination Services',
-        'check_interval': 60
-    },
-    'health_records': {
-        'priority': 'medium',
-        'impact_score': 60,
-        'icon': '📋',
-        'description': 'Health Records Access',
-        'check_interval': 90
-    },
-    'supply_chain': {
-        'priority': 'medium',
-        'impact_score': 55,
-        'icon': '🚚',
-        'description': 'Medical Supply Chain',
-        'check_interval': 120
-    },
-    'public_health': {
-        'priority': 'medium',
-        'impact_score': 50,
-        'icon': '📊',
-        'description': 'Public Health Data',
-        'check_interval': 180
-    }
-}
-
-def get_healthcare_impact_score(category, custom_score=None):
-    """Get impact score for healthcare category"""
-    if custom_score is not None:
-        return custom_score
-    return HEALTHCARE_CATEGORIES.get(category, {}).get('impact_score', 50)
-
-def get_healthcare_priority(category):
-    """Get priority level for healthcare category"""
-    return HEALTHCARE_CATEGORIES.get(category, {}).get('priority', 'medium')
-
-def get_healthcare_check_interval(category, custom_interval=None):
-    """Get recommended check interval for healthcare category"""
-    if custom_interval is not None:
-        return custom_interval
-    return HEALTHCARE_CATEGORIES.get(category, {}).get('check_interval', 60)
-
-# --- HEALTHCARE-SPECIFIC ENDPOINTS ---
-
-@app.route("/api/healthcare/categories")
-def get_healthcare_categories():
-    """Get available healthcare API categories with metadata"""
-    return jsonify({
-        "categories": HEALTHCARE_CATEGORIES,
-        "priorities": ["critical", "high", "medium", "low"],
-        "impact_range": {"min": 0, "max": 100}
-    })
-
-@app.route("/api/healthcare/impact", methods=["POST"])
-def calculate_healthcare_impact():
-    """Calculate impact score for healthcare API"""
-    try:
-        data = request.get_json()
-        category = data.get('category')
-        custom_score = data.get('impact_score')
-        
-        if not category:
-            return jsonify({"error": "Category is required"}), 400
-        
-        impact_score = get_healthcare_impact_score(category, custom_score)
-        priority = get_healthcare_priority(category)
-        recommended_interval = get_healthcare_check_interval(category)
-        
-        return jsonify({
-            "impact_score": impact_score,
-            "priority": priority,
-            "recommended_check_interval": recommended_interval,
-            "category_info": HEALTHCARE_CATEGORIES.get(category, {})
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/healthcare/stats")
-def get_healthcare_stats():
-    """Get healthcare-specific monitoring statistics"""
-    if db is None:
-        return jsonify({"error": "Database not connected"}), 500
-    
-    try:
-        monitored_apis = db.monitored_apis
-        
-        # Get all monitors
-        monitors = list(monitored_apis.find())
-        
-        # Calculate stats by priority
-        stats = {
-            "total_apis": len(monitors),
-            "by_priority": {
-                "critical": 0,
-                "high": 0,
-                "medium": 0,
-                "low": 0
-            },
-            "by_status": {
-                "up": 0,
-                "down": 0,
-                "unknown": 0
-            },
-            "by_category": {},
-            "average_uptime": 0,
-            "active_incidents": 0
-        }
-        
-        total_uptime = 0
-        uptime_count = 0
-        
-        for monitor in monitors:
-            # Count by priority
-            priority = monitor.get('priority', 'medium')
-            if priority in stats["by_priority"]:
-                stats["by_priority"][priority] += 1
-            
-            # Count by status
-            status = monitor.get('status', 'unknown')
-            if status in stats["by_status"]:
-                stats["by_status"][status] += 1
-            
-            # Count by category
-            category = monitor.get('category', 'unknown')
-            if category not in stats["by_category"]:
-                stats["by_category"][category] = 0
-            stats["by_category"][category] += 1
-            
-            # Calculate uptime
-            uptime = monitor.get('uptime_percentage', 0)
-            if uptime > 0:
-                total_uptime += uptime
-                uptime_count += 1
-            
-            # Count active incidents (down critical/high priority APIs)
-            if status == 'down' and priority in ['critical', 'high']:
-                stats["active_incidents"] += 1
-        
-        # Calculate average uptime
-        if uptime_count > 0:
-            stats["average_uptime"] = round(total_uptime / uptime_count, 2)
-        
-        return jsonify(stats)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route("/api/healthcare/war-room/incidents")
-def get_active_incidents():
-    """Get active incidents for war room"""
-    if db is None:
-        return jsonify({"error": "Database not connected"}), 500
-    
-    try:
-        monitored_apis = db.monitored_apis
-        
-        # Get critical and high priority APIs that are down
-        incidents = list(monitored_apis.find({
-            "status": "down",
-            "priority": {"$in": ["critical", "high"]}
-        }))
-        
-        # Format incidents for war room
-        formatted_incidents = []
-        for incident in incidents:
-            category_info = HEALTHCARE_CATEGORIES.get(incident.get('category'), {})
-            formatted_incidents.append({
-                "id": str(incident.get('_id')),
-                "title": f"🚨 {incident.get('name', 'Unknown API')} Critical Failure",
-                "description": f"{category_info.get('icon', '⚠️')} {category_info.get('description', incident.get('category', 'API'))} is down",
-                "impact": incident.get('impact_score', category_info.get('impact_score', 50)),
-                "priority": incident.get('priority', 'medium'),
-                "category": incident.get('category', 'unknown'),
-                "contact": incident.get('contact', 'No contact'),
-                "start_time": incident.get('last_check', datetime.utcnow().isoformat()),
-                "duration_minutes": int((datetime.utcnow() - incident.get('last_check', datetime.utcnow())).total_seconds() / 60)
-            })
-        
-        return jsonify({
-            "incidents": formatted_incidents,
-            "total_count": len(formatted_incidents),
-            "critical_count": len([i for i in formatted_incidents if i.get('priority') == 'critical']),
-            "high_count": len([i for i in formatted_incidents if i.get('priority') == 'high'])
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
 # --- ADVANCED MONITOR API ---
 @app.route("/api/advanced/monitors")
+@require_logged_in_api
 def get_monitors():
     if db is None:
         return jsonify({"error": "Database not connected"}), 500
     
     try:
+        user_id = get_current_user_id()
         monitored_apis = db.monitored_apis
         monitoring_logs = db.monitoring_logs
         
-        monitors = list(monitored_apis.find().sort([("category", ASCENDING), ("url", ASCENDING)]))
+        monitors = list(monitored_apis.find({"user_id": user_id}).sort([("category", ASCENDING), ("url", ASCENDING)]))
         
-        twenty_four_hours_ago = (datetime.utcnow() - timedelta(hours=24)).isoformat() + "Z"
-
         for monitor in monitors:
             monitor = serialize_objectid(monitor)
             api_id = monitor["id"]
-            
-            # Stats
-            pipeline = [
-                {"$match": {"api_id": api_id, "timestamp": {"$gte": twenty_four_hours_ago}}},
-                {"$group": {
-                    "_id": None,
-                    "avg_latency": {"$avg": "$total_latency_ms"},
-                    "total_checks": {"$sum": 1},
-                    "up_checks": {"$sum": {"$cond": ["$is_up", 1, 0]}}
-                }}
-            ]
-            
-            stats = list(monitoring_logs.aggregate(pipeline))
-            
-            if stats and stats[0].get("avg_latency") is not None:
-                monitor['avg_latency_24h'] = round(stats[0]['avg_latency'], 2)
-                monitor['uptime_pct_24h'] = round((stats[0]['up_checks'] / stats[0]['total_checks']) * 100, 2)
-            else:
-                monitor['avg_latency_24h'] = 0
-                monitor['uptime_pct_24h'] = 100.0
+
+            slo_metrics = compute_slo_metrics(api_id)
+            monitor["avg_latency_24h"] = slo_metrics.get("avg_latency_24h", 0.0)
+            monitor["uptime_pct_24h"] = slo_metrics.get("uptime_pct_24h", 100.0)
+            monitor["p95_latency_24h"] = slo_metrics.get("p95_latency_24h", 0.0)
+            monitor["slo_target_uptime_pct"] = slo_metrics.get("slo_target_uptime_pct", SLO_TARGET_UPTIME_PCT)
+            monitor["error_budget_remaining_pct"] = slo_metrics.get("error_budget_remaining_pct", 100.0)
+            monitor["error_budget_consumed_pct"] = slo_metrics.get("error_budget_consumed_pct", 0.0)
+            monitor["burn_rate_1h"] = slo_metrics.get("burn_rate_1h", 0.0)
+            monitor["burn_rate_6h"] = slo_metrics.get("burn_rate_6h", 0.0)
+            monitor["burn_rate_alert_level"] = slo_metrics.get("burn_rate_alert_level", "none")
+            monitor["burn_rate_alert_message"] = slo_metrics.get("burn_rate_alert_message", "No burn-rate alert")
 
             # Recent checks
-            recent = list(monitoring_logs.find({"api_id": api_id}).sort("timestamp", DESCENDING).limit(15))
+            recent = list(monitoring_logs.find({
+                "api_id": api_id,
+                "user_id": user_id,
+                "check_skipped": {"$ne": True}
+            }).sort("timestamp", DESCENDING).limit(15))
             monitor['recent_checks'] = [
                 {'is_up': r['is_up'], 'timestamp': r['timestamp']} 
                 for r in reversed(recent)
             ]
+
+            latest_failed = monitoring_logs.find_one(
+                {"api_id": api_id, "user_id": user_id, "is_up": False},
+                sort=[("timestamp", DESCENDING)]
+            )
+            monitor["last_root_cause_hint"] = (latest_failed or {}).get("root_cause_hint")
+            monitor["last_root_cause_details"] = (latest_failed or {}).get("root_cause_details")
 
         return jsonify(monitors)
 
@@ -1954,10 +2511,14 @@ def get_monitors():
         return jsonify({"error": "Failed to retrieve monitor data from server."}), 500
 
 @app.route("/api/advanced/add_monitor", methods=["POST"])
+@require_logged_in_api
 def add_monitor():
     if db is None:
         return jsonify({"error": "Database not connected"}), 500
     
+    user = get_current_user()
+    user_id = str(user["_id"])
+    plan = normalize_subscription_plan(user.get("subscription_plan"))
     data = request.json or {}
     url = data.get("url") or data.get("api_url")
     
@@ -1971,24 +2532,33 @@ def add_monitor():
             freq = 1.0
     except (ValueError, TypeError):
         freq = 1.0
+
+    if is_premium_frequency(freq) and not is_subscriber(plan):
+        return jsonify({
+            "error": "30s, 10s, 5s, and 1s intervals are subscriber-only",
+            "subscription": subscription_features(plan),
+        }), 403
     
     monitored_apis = db.monitored_apis
+
+    if not is_subscriber(plan):
+        monitor_count = monitored_apis.count_documents({"user_id": user_id})
+        if monitor_count >= FREE_MAX_MONITORS:
+            return jsonify({
+                "error": f"Free plan limit reached ({FREE_MAX_MONITORS} monitors). Upgrade for unlimited monitors.",
+                "subscription": subscription_features(plan),
+            }), 403
     
     # Check if URL already exists
-    if monitored_apis.find_one({"url": url}):
+    if monitored_apis.find_one({"url": url, "user_id": user_id}):
         return jsonify({"error": "This URL is already monitored."}), 409
     
     monitor_doc = {
+        "user_id": user_id,
         "url": url,
-        "api_name": data.get("api_name") or data.get("name"),
         "category": data.get("category"),
-        "priority": data.get("priority", "medium"),
-        "impact_score": data.get("impact_score", 50),
-        "emergency_contact": data.get("emergency_contact"),
-        "fallback_url": data.get("fallback_url"),
         "header_name": data.get("header_name"),
         "header_value": data.get("header_value"),
-        "check_interval": data.get("check_interval"),
         "check_frequency_minutes": freq,
         "notification_email": data.get("notification_email"),
         "is_active": True,
@@ -1997,13 +2567,21 @@ def add_monitor():
     }
     
     monitored_apis.insert_one(monitor_doc)
-    return jsonify({"success": True, "message": "Monitor added successfully."})
+    return jsonify({
+        "success": True,
+        "message": "Monitor added successfully.",
+        "subscription": subscription_features(plan),
+    })
 
 @app.route("/api/advanced/update_monitor", methods=["POST"])
+@require_logged_in_api
 def update_monitor():
     if db is None:
         return jsonify({"error": "Database not connected"}), 500
     
+    user = get_current_user()
+    user_id = str(user["_id"])
+    plan = normalize_subscription_plan(user.get("subscription_plan"))
     data = request.json or {}
     if "id" not in data:
         return jsonify({"error": "'id' is required"}), 400
@@ -2019,10 +2597,16 @@ def update_monitor():
             freq = 1.0
     except (ValueError, TypeError):
         freq = 1.0
+
+    if is_premium_frequency(freq) and not is_subscriber(plan):
+        return jsonify({
+            "error": "30s, 10s, 5s, and 1s intervals are subscriber-only",
+            "subscription": subscription_features(plan),
+        }), 403
     
     monitored_apis = db.monitored_apis
-    monitored_apis.update_one(
-        {"_id": ObjectId(data["id"])},
+    result = monitored_apis.update_one(
+        {"_id": ObjectId(data["id"]), "user_id": user_id},
         {"$set": {
             "url": url,
             "category": data.get("category"),
@@ -2032,10 +2616,13 @@ def update_monitor():
             "notification_email": data.get("notification_email")
         }}
     )
+    if result.matched_count == 0:
+        return jsonify({"error": "Monitor not found or access denied"}), 404
     
     return jsonify({"success": True, "message": "Monitor updated successfully."})
 
 @app.route("/api/advanced/delete_monitor", methods=["POST"])
+@require_logged_in_api
 def delete_monitor():
     if db is None:
         return jsonify({"error": "Database not connected"}), 500
@@ -2043,17 +2630,21 @@ def delete_monitor():
     data = request.json or {}
     if "id" not in data: 
         return jsonify({"error": "'id' is required"}), 400
+    user_id = get_current_user_id()
     
     monitored_apis = db.monitored_apis
     monitoring_logs = db.monitoring_logs
     
     api_id = data["id"]
-    monitored_apis.delete_one({"_id": ObjectId(api_id)})
-    monitoring_logs.delete_many({"api_id": api_id})
+    deleted = monitored_apis.delete_one({"_id": ObjectId(api_id), "user_id": user_id})
+    if deleted.deleted_count == 0:
+        return jsonify({"error": "Monitor not found or access denied"}), 404
+    monitoring_logs.delete_many({"api_id": api_id, "user_id": user_id})
     
     return jsonify({"success": True})
 
 @app.route("/api/advanced/history")
+@require_logged_in_api
 def get_history():
     if db is None:
         return jsonify({"error": "Database not connected"}), 500
@@ -2061,15 +2652,19 @@ def get_history():
     api_id = request.args.get("id")
     if not api_id: 
         return jsonify({"error": "'id' (api_id) is required"}), 400
+    user_id = get_current_user_id()
+    api_doc, api_error = ensure_api_access_or_error(api_id, user_id)
+    if api_error:
+        return api_error
     
     page = request.args.get("page", 1, type=int)
     per_page = 15
     
     monitoring_logs = db.monitoring_logs
-    total_items = monitoring_logs.count_documents({"api_id": api_id})
+    total_items = monitoring_logs.count_documents({"api_id": api_id, "user_id": user_id})
     skip = (page - 1) * per_page
     
-    logs = list(monitoring_logs.find({"api_id": api_id}).sort("timestamp", DESCENDING).skip(skip).limit(per_page))
+    logs = list(monitoring_logs.find({"api_id": api_id, "user_id": user_id}).sort("timestamp", DESCENDING).skip(skip).limit(per_page))
     
     for log in logs:
         serialize_objectid(log)
@@ -2084,23 +2679,33 @@ def get_history():
     })
 
 @app.route("/api/advanced/last_checks/<api_id>")
+@require_logged_in_api
 def get_last_checks(api_id):
     if db is None:
         return jsonify([])
+    user_id = get_current_user_id()
+    api_doc, api_error = ensure_api_access_or_error(api_id, user_id)
+    if api_error:
+        return api_error
     
     monitoring_logs = db.monitoring_logs
-    logs = list(monitoring_logs.find({"api_id": api_id}).sort("timestamp", DESCENDING).limit(15))
+    logs = list(monitoring_logs.find({
+        "api_id": api_id,
+        "user_id": user_id,
+        "check_skipped": {"$ne": True}
+    }).sort("timestamp", DESCENDING).limit(15))
     
     result = [{"is_up": bool(log.get("is_up"))} for log in logs]
     return jsonify(result)
 
 @app.route("/api/advanced/log_details/<log_id>")
+@require_logged_in_api
 def get_log_details(log_id):
     if db is None:
         return jsonify({"error": "Database not connected"}), 500
     
     monitoring_logs = db.monitoring_logs
-    log = monitoring_logs.find_one({"_id": ObjectId(log_id)})
+    log = monitoring_logs.find_one({"_id": ObjectId(log_id), "user_id": get_current_user_id()})
     
     if not log: 
         return jsonify({"error": "Log not found"}), 404
@@ -2116,17 +2721,27 @@ def get_log_details(log_id):
     return jsonify(log)
 
 @app.route("/api/advanced/uptime_history/<api_id>")
+@require_logged_in_api
 def get_uptime_history(api_id):
     """Calculates daily uptime percentage for the last 90 days."""
     if db is None:
         return jsonify({"error": "Database not connected"}), 500
     
     monitoring_logs = db.monitoring_logs
+    user_id = get_current_user_id()
+    api_doc, api_error = ensure_api_access_or_error(api_id, user_id)
+    if api_error:
+        return api_error
     ninety_days_ago = (datetime.utcnow() - timedelta(days=90)).isoformat() + "Z"
     
     try:
         pipeline = [
-            {"$match": {"api_id": api_id, "timestamp": {"$gte": ninety_days_ago}}},
+            {"$match": {
+                "api_id": api_id,
+                "user_id": user_id,
+                "timestamp": {"$gte": ninety_days_ago},
+                "check_skipped": {"$ne": True}
+            }},
             {"$group": {
                 "_id": {"$substr": ["$timestamp", 0, 10]},
                 "total_checks": {"$sum": 1},
@@ -2156,9 +2771,65 @@ def get_uptime_history(api_id):
         print(f"[DB ERROR] Failed to fetch uptime history for api_id {api_id}: {e}")
         return jsonify({"error": "Failed to retrieve uptime history."}), 500
 
+
+@app.route("/api/advanced/slo/<api_id>")
+@require_logged_in_api
+def get_slo_metrics(api_id):
+    if db is None:
+        return jsonify({"error": "Database not connected"}), 500
+    try:
+        user_id = get_current_user_id()
+        api_doc, api_error = ensure_api_access_or_error(api_id, user_id)
+        if api_error:
+            return api_error
+        metrics = compute_slo_metrics(api_id)
+        metrics["api_id"] = api_id
+        return jsonify(metrics)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/advanced/slo_summary")
+@require_logged_in_api
+def get_slo_summary():
+    if db is None:
+        return jsonify({"error": "Database not connected"}), 500
+    try:
+        user_id = get_current_user_id()
+        monitors = list(db.monitored_apis.find({"is_active": True, "user_id": user_id}, {"url": 1}))
+        summary = {
+            "total_monitors": len(monitors),
+            "critical_burn_rate": 0,
+            "warning_burn_rate": 0,
+            "avg_uptime_pct_24h": 100.0,
+            "avg_error_budget_remaining_pct": 100.0,
+        }
+        if not monitors:
+            return jsonify(summary)
+
+        uptime_values = []
+        budget_values = []
+        for monitor in monitors:
+            api_id = str(monitor["_id"])
+            metrics = compute_slo_metrics(api_id)
+            uptime_values.append(metrics.get("uptime_pct_24h", 100.0))
+            budget_values.append(metrics.get("error_budget_remaining_pct", 100.0))
+            level = metrics.get("burn_rate_alert_level")
+            if level == "critical":
+                summary["critical_burn_rate"] += 1
+            elif level == "warning":
+                summary["warning_burn_rate"] += 1
+
+        summary["avg_uptime_pct_24h"] = round(sum(uptime_values) / len(uptime_values), 2) if uptime_values else 100.0
+        summary["avg_error_budget_remaining_pct"] = round(sum(budget_values) / len(budget_values), 2) if budget_values else 100.0
+        return jsonify(summary)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # --- DEVELOPER DATA INTEGRATION APIs ---
 
 @app.route("/api/sync/github", methods=["POST"])
+@require_logged_in_api
 def sync_github():
     """Sync commits and PRs from GitHub using stored settings"""
     if db is None:
@@ -2168,10 +2839,11 @@ def sync_github():
     repo_owner = data.get("repo_owner")
     repo_name = data.get("repo_name")
     since_days = data.get("since_days", 7)
+    user_id = get_current_user_id()
     
     # If not provided in request, get from stored settings
     if not repo_owner or not repo_name:
-        settings = db.github_settings.find_one({"user_id": "default_user"})
+        settings = db.github_settings.find_one({"user_id": user_id})
         if settings:
             repo_owner = settings.get("repo_owner")
             repo_name = settings.get("repo_name")
@@ -2181,7 +2853,7 @@ def sync_github():
     
     # Try to get token from stored settings first, then fall back to env variable
     github_token = None
-    settings = db.github_settings.find_one({"user_id": "default_user"})
+    settings = db.github_settings.find_one({"user_id": user_id})
     if settings and "github_token" in settings:
         github_token = settings["github_token"]
     
@@ -2209,6 +2881,7 @@ def sync_github():
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/sync/issues", methods=["POST"])
+@require_logged_in_api
 def sync_issues():
     """Sync issues from GitHub using stored settings"""
     if db is None:
@@ -2217,10 +2890,11 @@ def sync_issues():
     data = request.json or {}
     repo_owner = data.get("repo_owner")
     repo_name = data.get("repo_name")
+    user_id = get_current_user_id()
     
     # If not provided in request, get from stored settings
     if not repo_owner or not repo_name:
-        settings = db.github_settings.find_one({"user_id": "default_user"})
+        settings = db.github_settings.find_one({"user_id": user_id})
         if settings:
             repo_owner = settings.get("repo_owner")
             repo_name = settings.get("repo_name")
@@ -2230,7 +2904,7 @@ def sync_issues():
     
     # Try to get token from stored settings first, then fall back to env variable
     github_token = None
-    settings = db.github_settings.find_one({"user_id": "default_user"})
+    settings = db.github_settings.find_one({"user_id": user_id})
     if settings and "github_token" in settings:
         github_token = settings["github_token"]
     
@@ -2248,20 +2922,27 @@ def sync_issues():
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/alert-status/<api_id>", methods=["GET"])
+@require_logged_in_api
 def get_alert_status(api_id):
     """Get current alert status for an API (downtime alerts + AI predictions)"""
     if db is None:
         return jsonify({"error": "Database not connected"}), 500
     
     try:
+        user_id = get_current_user_id()
+        api_doc, api_error = ensure_api_access_or_error(api_id, user_id)
+        if api_error:
+            return api_error
         result = {
             "downtime_alert": None,
-            "ai_prediction": None
+            "ai_prediction": None,
+            "burn_rate_alert": None
         }
         
         # Check for open downtime alert
         downtime_alert = db.alert_history.find_one({
             "api_id": api_id,
+            "user_id": user_id,
             "status": "open",
             "alert_type": "downtime"
         })
@@ -2271,12 +2952,15 @@ def get_alert_status(api_id):
                 "created_at": downtime_alert.get("created_at"),
                 "github_issue_number": downtime_alert.get("github_issue_number"),
                 "github_issue_url": downtime_alert.get("github_issue_url"),
-                "reason": downtime_alert.get("reason")
+                "reason": downtime_alert.get("reason"),
+                "incident_id": downtime_alert.get("incident_id"),
+                "root_cause_hint": downtime_alert.get("root_cause_hint"),
             }
         
         # Check for AI prediction alert
         ai_alert = db.alert_history.find_one({
             "api_id": api_id,
+            "user_id": user_id,
             "status": "open",
             "alert_type": "ai_prediction"
         })
@@ -2293,9 +2977,44 @@ def get_alert_status(api_id):
             if ack:
                 result["ai_prediction"]["worker_acknowledgment"] = ack
 
-        result["worker_responses"] = fetch_worker_responses(api_id, limit=5)
+        burn_rate_alert = db.alert_history.find_one({
+            "api_id": api_id,
+            "user_id": user_id,
+            "status": "open",
+            "alert_type": "burn_rate"
+        })
+        if burn_rate_alert:
+            result["burn_rate_alert"] = {
+                "severity": burn_rate_alert.get("severity"),
+                "reason": burn_rate_alert.get("reason"),
+                "burn_rate_1h": burn_rate_alert.get("burn_rate_1h"),
+                "burn_rate_6h": burn_rate_alert.get("burn_rate_6h"),
+                "error_budget_remaining_pct": burn_rate_alert.get("error_budget_remaining_pct"),
+                "created_at": burn_rate_alert.get("created_at"),
+                "updated_at": burn_rate_alert.get("updated_at"),
+            }
+
+        incident_status = db.alert_incidents.find_one(
+            {"api_id": api_id, "user_id": user_id, "status": "open"},
+            sort=[("created_at", DESCENDING)]
+        )
+        if incident_status:
+            result["incident_status"] = {
+                "incident_id": incident_status.get("incident_id"),
+                "status": incident_status.get("status"),
+                "created_at": incident_status.get("created_at"),
+                "last_seen_at": incident_status.get("last_seen_at"),
+                "failure_events": incident_status.get("failure_events", 0),
+                "suppressed_alerts": incident_status.get("suppressed_alerts", 0),
+                "root_cause_hint": incident_status.get("root_cause_hint"),
+                "latest_reason": incident_status.get("latest_reason"),
+            }
+        else:
+            result["incident_status"] = None
+
+        result["worker_responses"] = fetch_worker_responses(api_id, limit=5, user_id=user_id)
         # Don't try to predict on-demand, just show if alert exists
-        # AI predictions happen in background every 15 mins
+        # AI predictions happen in background every 20 minutes
 
         return jsonify(result)
         
@@ -2304,19 +3023,25 @@ def get_alert_status(api_id):
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/worker-responses/<api_id>")
+@require_logged_in_api
 def get_worker_responses(api_id):
     if db is None:
         return jsonify({"error": "Database not connected"}), 500
     limit = request.args.get("limit", 20, type=int)
     limit = min(max(limit, 1), 100)
     try:
-        responses = fetch_worker_responses(api_id, limit=limit)
+        user_id = get_current_user_id()
+        api_doc, api_error = ensure_api_access_or_error(api_id, user_id)
+        if api_error:
+            return api_error
+        responses = fetch_worker_responses(api_id, limit=limit, user_id=user_id)
         return jsonify(responses)
     except Exception as e:
         print(f"[Worker Responses] Error: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/github/create-downtime-alert", methods=["POST"])
+@require_logged_in_api
 def create_downtime_alert():
     """Create a GitHub issue for API downtime"""
     if db is None:
@@ -2324,12 +3049,13 @@ def create_downtime_alert():
     
     data = request.json or {}
     api_id = data.get("api_id")
+    user_id = get_current_user_id()
     
     if not api_id:
         return jsonify({"error": "api_id required"}), 400
     
     # Get GitHub settings
-    settings = db.github_settings.find_one({"user_id": "default_user"})
+    settings = db.github_settings.find_one({"user_id": user_id})
     if not settings:
         return jsonify({"error": "GitHub settings not configured"}), 400
     
@@ -2342,13 +3068,13 @@ def create_downtime_alert():
     
     try:
         # Get API details
-        api = db.monitored_apis.find_one({"_id": ObjectId(api_id)})
+        api = db.monitored_apis.find_one({"_id": ObjectId(api_id), "user_id": user_id})
         if not api:
             return jsonify({"error": "API not found"}), 404
         
         # Get latest downtime log
         latest_log = db.monitoring_logs.find_one(
-            {"api_id": api_id, "is_up": False},
+            {"api_id": api_id, "user_id": user_id, "is_up": False, "check_skipped": {"$ne": True}},
             sort=[("timestamp", -1)]
         )
         
@@ -2366,6 +3092,8 @@ def create_downtime_alert():
             "tls_latency_ms": latest_log.get("tls_latency_ms"),
             "server_processing_latency_ms": latest_log.get("server_processing_latency_ms"),
             "url_type": latest_log.get("url_type"),
+            "root_cause_hint": latest_log.get("root_cause_hint"),
+            "root_cause_details": latest_log.get("root_cause_details"),
             "incident_id": f"INC-{int(time.time())}",
             "history_summary": f"API has been down since {latest_log.get('timestamp')}"
         }
@@ -2382,6 +3110,7 @@ def create_downtime_alert():
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/commits", methods=["GET"])
+@require_logged_in_api
 def get_commits():
     """Get recent commits"""
     if db is None:
@@ -2399,6 +3128,7 @@ def get_commits():
     return jsonify(commits)
 
 @app.route("/api/issues", methods=["GET"])
+@require_logged_in_api
 def get_issues():
     """Get issues"""
     if db is None:
@@ -2417,6 +3147,7 @@ def get_issues():
     return jsonify(issues)
 
 @app.route("/api/logs", methods=["GET"])
+@require_logged_in_api
 def get_logs():
     """Get application logs"""
     if db is None:
@@ -2433,12 +3164,14 @@ def get_logs():
     return jsonify(logs)
 
 @app.route("/api/incidents", methods=["POST"])
+@require_logged_in_api
 def create_incident():
     """Create a new incident report"""
     if db is None:
         return jsonify({"error": "Database not connected"}), 500
     
     data = request.json or {}
+    user_id = get_current_user_id()
     
     incident_doc = {
         "incident_id": f"INC-{int(time.time())}",
@@ -2455,6 +3188,7 @@ def create_incident():
         "related_commits": data.get("related_commits", []),
         "related_issues": data.get("related_issues", []),
         "created_by": data.get("created_by"),
+        "user_id": user_id,
         "created_at": now_isoutc()
     }
     
@@ -2464,154 +3198,23 @@ def create_incident():
     return jsonify({"success": True, "incident": incident_doc})
 
 @app.route("/api/incidents", methods=["GET"])
+@require_logged_in_api
 def get_incidents():
     """Get all incident reports"""
     if db is None:
         return jsonify({"error": "Database not connected"}), 500
     
-    incidents = list(db.incident_reports.find().sort("created_at", -1).limit(50))
+    incidents = list(db.incident_reports.find({"user_id": get_current_user_id()}).sort("created_at", -1).limit(50))
     
     for incident in incidents:
         serialize_objectid(incident)
     
     return jsonify(incidents)
 
-
-# --- Phase 2 Demo Endpoints ---
-@app.route("/demo/incident", methods=["GET"])
-def demo_incident():
-    """Return mock incident war-room payload"""
-    payload = deepcopy(DEMO_INCIDENT)
-    payload["chat"] = DEMO_CHAT
-    payload["timeline"] = DEMO_TIMELINE
-    return jsonify(payload)
-
-
-@app.route("/demo/incident/chat", methods=["POST"])
-def demo_incident_chat_send():
-    data = request.json or {}
-    message = data.get("message")
-    author = data.get("author") or "Guest"
-    role = data.get("role") or _get_request_role()
-    if not message:
-        return jsonify({"error": "message required"}), 400
-    chat_entry = {
-        "id": f"msg{len(DEMO_CHAT)+1}",
-        "author": author,
-        "role": role,
-        "message": message,
-        "timestamp": now_isoutc()
-    }
-    DEMO_CHAT.append(chat_entry)
-    DEMO_TIMELINE.append({
-        "type": "note",
-        "label": f"{role} update",
-        "detail": message,
-        "timestamp": chat_entry["timestamp"]
-    })
-    return jsonify({"success": True, "message": chat_entry})
-
-
-@app.route("/demo/incident/assign", methods=["POST"])
-@require_roles(ROLE_PERMISSIONS["assign_incident"])
-def demo_incident_assign():
-    data = request.json or {}
-    assignee = data.get("assignee") or {}
-    DEMO_INCIDENT["assigned_to"] = assignee
-    DEMO_TIMELINE.append({
-        "type": "assign",
-        "label": "Assignment Updated",
-        "detail": f"Assigned to {assignee.get('name', 'Unknown')} ({assignee.get('role', 'N/A')})",
-        "timestamp": now_isoutc()
-    })
-    return jsonify({"success": True, "incident": DEMO_INCIDENT})
-
-
-@app.route("/demo/incident/status", methods=["POST"])
-@require_roles(ROLE_PERMISSIONS["update_status"])
-def demo_incident_status():
-    data = request.json or {}
-    status = data.get("status") or "Open"
-    DEMO_INCIDENT["status"] = status
-    DEMO_TIMELINE.append({
-        "type": "status",
-        "label": f"Status → {status}",
-        "detail": request.demo_role,
-        "timestamp": now_isoutc()
-    })
-    return jsonify({"success": True, "incident": DEMO_INCIDENT})
-
-
-@app.route("/demo/incident/causal_graph", methods=["GET"])
-def demo_causal_graph():
-    graph = deepcopy(DEMO_CAUSAL_GRAPH)
-    # randomize node statuses for liveliness
-    for node in graph["nodes"]:
-        if node["id"] == graph["root_cause"]:
-            node["status"] = "critical"
-        else:
-            node["status"] = random.choice(["normal", "warning"])
-    return jsonify(graph)
-
-
-@app.route("/demo/simulation/run", methods=["POST"])
-@require_roles(ROLE_PERMISSIONS["run_simulation"])
-def demo_simulation_run():
-    data = request.json or {}
-    action_type = data.get("action_type") or "RESTART_SERVICE"
-    params = data.get("params") or {}
-    base_risk = 0.82
-    adjustments = {
-        "RESTART_SERVICE": -0.20,
-        "INCREASE_TIMEOUT": -0.10,
-        "ADD_DB_INDEX": -0.25,
-        "REDUCE_LOAD": -0.18,
-        "SWITCH_TO_BACKUP_API": -0.30,
-        "CLEAN_CACHE": -0.12,
-    }
-    delta = adjustments.get(action_type, -0.05)
-    new_risk = max(0.05, base_risk + delta + random.uniform(-0.03, 0.03))
-    latency = random.randint(280, 420)
-    confidence = random.uniform(0.7, 0.9)
-    result = {
-        "action_type": action_type,
-        "params": params,
-        "new_risk": round(new_risk, 2),
-        "latency_ms": latency,
-        "confidence": round(confidence, 2),
-        "recommendation": "Scenario suggests risk drops after action; monitor DB metrics and cache hit rate.",
-        "timestamp": now_isoutc()
-    }
-    DEMO_SIM_HISTORY.append(result)
-    return jsonify(result)
-
-
-@app.route("/demo/simulation/history", methods=["GET"])
-def demo_simulation_history():
-    return jsonify(list(reversed(DEMO_SIM_HISTORY[-10:])))
-
-
-@app.route("/demo/incident/summarize", methods=["POST"])
-def demo_incident_summarize():
-    summary = {
-        "incident_id": DEMO_INCIDENT["incident_id"],
-        "summary": "DB saturation (92% CPU) triggered stale bed data. Actions: restarted replica, increased cache TTL.",
-        "started_at": DEMO_INCIDENT.get("started_at"),
-        "status": DEMO_INCIDENT.get("status"),
-        "affected_api": DEMO_INCIDENT["api"].get("name"),
-        "actions_taken": [evt for evt in DEMO_TIMELINE if evt.get("type") in {"action", "note"}],
-    }
-    DEMO_TIMELINE.append({
-        "type": "summary",
-        "label": "AI Summary Generated",
-        "detail": summary["summary"],
-        "timestamp": now_isoutc()
-    })
-    return jsonify(summary)
-
 # --- GITHUB SETTINGS APIs ---
 
 @app.route("/api/github/settings", methods=["POST"])
+@require_logged_in_api
 def save_github_settings():
     """Save or update GitHub repository settings including token"""
     if db is None:
@@ -2626,8 +3229,9 @@ def save_github_settings():
         return jsonify({"error": "repo_owner and repo_name are required"}), 400
     
     try:
+        user_id = get_current_user_id()
         settings_doc = {
-            "user_id": "default_user",  # Can be extended for multi-user
+            "user_id": user_id,
             "repo_owner": repo_owner,
             "repo_name": repo_name,
             "updated_at": now_isoutc()
@@ -2639,7 +3243,7 @@ def save_github_settings():
         
         # Upsert: update if exists, insert if not
         db.github_settings.update_one(
-            {"user_id": "default_user"},
+            {"user_id": user_id},
             {"$set": settings_doc},
             upsert=True
         )
@@ -2657,13 +3261,14 @@ def save_github_settings():
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/github/settings", methods=["GET"])
+@require_logged_in_api
 def get_github_settings():
     """Get saved GitHub repository settings (token masked for security)"""
     if db is None:
         return jsonify({"error": "Database not connected"}), 500
     
     try:
-        settings = db.github_settings.find_one({"user_id": "default_user"})
+        settings = db.github_settings.find_one({"user_id": get_current_user_id()})
         
         if settings:
             serialize_objectid(settings)
@@ -2680,28 +3285,31 @@ def get_github_settings():
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/github/export-dataset", methods=["POST"])
+@require_logged_in_api
 def export_monitoring_dataset():
     """Export monitoring data as CSV and push to GitHub repository"""
     if db is None:
         return jsonify({"error": "Database not connected"}), 500
     
     try:
+        user_id = get_current_user_id()
         # Get GitHub settings
-        settings = db.github_settings.find_one({"user_id": "default_user"})
+        settings = db.github_settings.find_one({"user_id": user_id})
         if not settings:
             return jsonify({"error": "GitHub settings not configured. Please save settings first."}), 400
         
         repo_owner = settings.get("repo_owner")
         repo_name = settings.get("repo_name")
         
-        github_token = os.getenv("GITHUB_TOKEN")
+        github_token = settings.get("github_token") or os.getenv("GITHUB_TOKEN")
         if not github_token:
-            return jsonify({"error": "GITHUB_TOKEN not configured in environment"}), 500
+            return jsonify({"error": "GitHub token not configured in settings or environment"}), 500
         
         # Get monitoring data from last 30 days
         thirty_days_ago = datetime.utcnow() - timedelta(days=30)
         logs = list(db.monitoring_logs.find({
-            "timestamp": {"$gte": thirty_days_ago.isoformat()}
+            "timestamp": {"$gte": thirty_days_ago.isoformat()},
+            "user_id": user_id,
         }).sort("timestamp", -1).limit(10000))
         
         if not logs:
@@ -2790,15 +3398,20 @@ def export_monitoring_dataset():
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/context/<api_id>")
+@require_logged_in_api
 def get_developer_context(api_id):
     """Get all developer context for an API"""
     if db is None:
         return jsonify({"error": "Database not connected"}), 500
     
     try:
+        user_id = get_current_user_id()
+        api_doc, api_error = ensure_api_access_or_error(api_id, user_id)
+        if api_error:
+            return api_error
         # Get latest monitoring log
         latest_log = db.monitoring_logs.find_one(
-            {"api_id": api_id},
+            {"api_id": api_id, "user_id": user_id},
             sort=[("timestamp", -1)]
         )
         
@@ -2865,6 +3478,7 @@ def get_developer_context(api_id):
 # --- AI/ML PREDICTION APIs ---
 
 @app.route("/api/ai/train", methods=["POST"])
+@require_logged_in_api
 def train_ai_model():
     """
     Train AI model by calling separate training service
@@ -2879,6 +3493,10 @@ def train_ai_model():
     
     if not api_id:
         return jsonify({"error": "api_id required"}), 400
+    user_id = get_current_user_id()
+    api_doc, api_error = ensure_api_access_or_error(api_id, user_id)
+    if api_error:
+        return api_error
     
     try:
         # Always use FULL training (runs on separate port, won't block)
@@ -2903,7 +3521,7 @@ def train_ai_model():
         # Update last_ai_training timestamp immediately
         from bson import ObjectId
         db.monitored_apis.update_one(
-            {"_id": ObjectId(api_id)},
+            {"_id": ObjectId(api_id), "user_id": user_id},
             {"$set": {"last_ai_training": datetime.utcnow()}}
         )
         
@@ -2922,12 +3540,16 @@ def train_ai_model():
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/ai/predict/<api_id>")
+@require_logged_in_api
 def predict_failure(api_id):
     """Predict if API will fail in next hour"""
     if db is None:
         return jsonify({"error": "Database not connected"}), 500
     
     try:
+        api_doc, api_error = ensure_api_access_or_error(api_id, get_current_user_id())
+        if api_error:
+            return api_error
         ai = AIPredictor(db)
         prediction = ai.predict_failure(api_id)
         return jsonify(prediction)
@@ -2935,6 +3557,7 @@ def predict_failure(api_id):
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/ai/anomalies/<api_id>")
+@require_logged_in_api
 def detect_anomalies(api_id):
     """Detect anomalies in API performance"""
     if db is None:
@@ -2943,6 +3566,9 @@ def detect_anomalies(api_id):
     hours = request.args.get("hours", 24, type=int)
     
     try:
+        api_doc, api_error = ensure_api_access_or_error(api_id, get_current_user_id())
+        if api_error:
+            return api_error
         ai = AIPredictor(db)
         anomalies = ai.detect_anomalies(api_id, hours)
         return jsonify(anomalies)
@@ -2950,6 +3576,7 @@ def detect_anomalies(api_id):
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/ai/insights/<api_id>")
+@require_logged_in_api
 def get_ai_insights(api_id):
     """Get AI-generated insights and recommendations.
 
@@ -2961,6 +3588,9 @@ def get_ai_insights(api_id):
         return jsonify({"error": "Database not connected"}), 500
 
     try:
+        api_doc, api_error = ensure_api_access_or_error(api_id, get_current_user_id())
+        if api_error:
+            return api_error
         ai = AIPredictor(db)
 
         # Core prediction used for narrative + metrics
@@ -3071,18 +3701,23 @@ def get_ai_insights(api_id):
 
 
 @app.route("/api/ai/insights/history/<api_id>")
+@require_logged_in_api
 def get_ai_insights_history(api_id):
     """Return stored AI insight history for an API from MongoDB."""
     if db is None:
         return jsonify({"error": "Database not connected"}), 500
 
     try:
-        history = get_ai_insights_from_db(api_id, limit=20)
+        api_doc, api_error = ensure_api_access_or_error(api_id, get_current_user_id())
+        if api_error:
+            return api_error
+        history = get_ai_insights_from_db(api_id, limit=20, user_id=get_current_user_id())
         return jsonify(history)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 @app.route("/api/ai/similar_incidents", methods=["POST"])
+@require_logged_in_api
 def find_similar_incidents():
     """Find similar past incidents"""
     if db is None:
@@ -3121,6 +3756,7 @@ if __name__ == "__main__":
         print(f"[Monitor ERROR] Could not start monitor thread: {e}")
     
     try:
-        app.run(port=5000, debug=True, use_reloader=False)
+        flask_debug = os.getenv("FLASK_DEBUG", "false").lower() in ("1", "true", "yes", "on")
+        app.run(port=5000, debug=flask_debug, use_reloader=False)
     except Exception as e:
         print(f"[Flask ERROR] Could not start Flask app: {e}")

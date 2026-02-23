@@ -5,7 +5,7 @@ Runs on a different port (5001) to handle AI training without blocking main app
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from pymongo import MongoClient
+from pymongo import MongoClient, DESCENDING
 from bson import ObjectId
 import os
 import sys
@@ -229,115 +229,46 @@ def train_full():
                     print(f"[AI Training Service]   - Risk Factors: {len(risk_factors)}")
                     
                     # Send alert if high or moderate risk
-                    if failure_prob >= 0.40:  
+                    if failure_prob >= 0.40:
                         if failure_prob >= 0.70:
-                            print(f"[AI Training Service] HIGH RISK DETECTED!")
+                            print("[AI Training Service] HIGH RISK DETECTED!")
                         else:
-                            print(f"[AI Training Service] MODERATE RISK DETECTED!")
-                        
+                            print("[AI Training Service] MODERATE RISK DETECTED!")
+
                         # Check if alert already exists
                         existing_alert = db.alert_history.find_one({
                             "api_id": api_id,
                             "alert_type": "ai_prediction",
                             "status": "open"
                         })
-                        
+
                         if not existing_alert:
-                            print(f"[AI Training Service] Sending AI prediction alert...")
+                            api_doc = db.monitored_apis.find_one({"_id": ObjectId(api_id)})
+                            api_url = api_doc.get("url", "Unknown API") if api_doc else "Unknown API"
+
+                            print(f"[AI Training Service] Sending AI prediction alert for {api_url}...")
                             ai_alert_mgr = AIAlertManager(db)
-                            ai_alert_mgr.check_and_alert_single_api(api_id)
-                            alert_sent = True
-                            print(f"[AI Training Service] Alert sent successfully")
-                            
-                            # Create GitHub issue for high/moderate risk
-                            try:
-                                print(f"[AI Training Service] Creating GitHub issue...")
-                                from github_integration import GitHubIntegration
-                                
-                                # Get API details
-                                api_doc = db.monitored_apis.find_one({"_id": ObjectId(api_id)})
-                                if api_doc:
-                                    api_url = api_doc.get('url', 'Unknown API')
-                                    api_category = api_doc.get('category', 'Uncategorized')
-                                    
-                                    # Create detailed GitHub issue
-                                    github = GitHubIntegration(db)
-                                    
-                                    # Build issue title
-                                    risk_emoji = "" if failure_prob >= 0.70 else ""
-                                    title = f"{risk_emoji} AI Alert: {risk_level.upper()} Risk - {api_category} API"
-                                    
-                                    # Build issue body
-                                    body = f"""## AI-Powered Failure Prediction Alert
-
-### Prediction Details
-- **API Endpoint:** `{api_url}`
-- **Category:** {api_category}
-- **Risk Level:** {risk_level.upper()}
-- **Failure Probability:** {failure_prob*100:.1f}%
-- **Confidence:** {confidence*100:.1f}%
-- **Risk Score:** {int(failure_prob*100)}/100
-
-### Analysis
-LSTM neural network detected concerning patterns in API behavior.
-
-**Status:** {"HIGH ALERT - Immediate action required" if failure_prob >= 0.70 else "MODERATE RISK - Monitor closely"}
-
-### Risk Factors
-"""
-                                    if risk_factors:
-                                        for factor in risk_factors[:5]:  
-                                            body += f"- {factor}\n"
-                                    else:
-                                        body += "- Pattern anomalies detected\n- Historical trend analysis indicates increased failure risk\n"
-                                    
-                                    body += f"""
-### Recommended Actions
-1. **Review Recent Changes:** Check recent deployments and code changes
-2. **Monitor Metrics:** Watch latency, error rates, and resource usage
-3. **Check Dependencies:** Verify all external services are healthy
-4. **Review Logs:** Look for error patterns or warnings
-5. **Consider Rollback:** If issues persist, consider rolling back recent changes
-
-### Detection Time
-{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}
-
----
-*This issue was automatically created by the AI Co-Pilot monitoring system.*
-*Training completed in {duration:.1f} seconds with {confidence*100:.1f}% confidence.*
-"""
-                                    
-                                    # Create the issue
-                                    issue_result = github.create_issue_for_api_failure(
-                                        api_id=api_id,
-                                        title=title,
-                                        description=body,
-                                        labels=["ai-prediction", risk_level + "-risk", "automated-alert"]
-                                    )
-                                    
-                                    if issue_result and issue_result.get('success'):
-                                        issue_url = issue_result.get('issue_url')
-                                        issue_number = issue_result.get('issue_number')
-                                        print(f"[AI Training Service] GitHub issue created: #{issue_number}")
-                                        print(f"[AI Training Service] URL: {issue_url}")
-                                        
-                                        # Update alert with GitHub info
-                                        db.alert_history.update_one(
-                                            {"api_id": api_id, "alert_type": "ai_prediction", "status": "open"},
-                                            {"$set": {
-                                                "github_issue_url": issue_url,
-                                                "github_issue_number": issue_number
-                                            }}
-                                        )
-                                    else:
-                                        print(f"[AI Training Service] GitHub issue creation failed")
-                                        
-                            except Exception as github_error:
-                                print(f"[AI Training Service] GitHub error: {github_error}")
-                                import traceback
-                                traceback.print_exc()
+                            alert_result = ai_alert_mgr.create_ai_prediction_alert(
+                                api_id=api_id,
+                                api_url=api_url,
+                                prediction_data={
+                                    "failure_probability": failure_prob,
+                                    "confidence": confidence,
+                                    "risk_factors": risk_factors,
+                                    "recommendations": [
+                                        "Review recent deployments and code changes.",
+                                        "Monitor latency, error rate, and dependency health.",
+                                        "Inspect logs and traces for emerging anomalies."
+                                    ]
+                                }
+                            )
+                            alert_sent = bool(alert_result and alert_result.get("success"))
+                            if alert_sent:
+                                print("[AI Training Service] Alert sent successfully")
+                            else:
+                                print(f"[AI Training Service] Alert dispatch failed: {alert_result}")
                         else:
-                            print(f"[AI Training Service] Alert already exists (not sending duplicate)")
+                            print("[AI Training Service] Alert already exists (not sending duplicate)")
                     else:
                         print(f"[AI Training Service] Risk is {risk_level.upper()}, no alert needed")
                     
@@ -487,57 +418,6 @@ LSTM neural network detected concerning patterns in API behavior.
         
         return jsonify({"error": str(e)}), 500
 
-@app.route("/api/ai/training_runs/<api_id>", methods=["GET"])
-def get_training_runs(api_id):
-    """Get AI training runs for a specific API."""
-    print(f"[AI Training Service] Received request for training runs of API: {api_id}")
-    
-    try:
-        limit = int(request.args.get("limit", 15))
-        print(f"[AI Training Service] Query limit: {limit}")
-        
-        # Check if database is available
-        if db is None:
-            print("[AI Training Service] Database not available")
-            return jsonify([]), 500
-        
-        # Check if collection exists
-        if "ai_training_runs" not in db.list_collection_names():
-            print("[AI Training Service] ai_training_runs collection not found")
-            return jsonify([])
-        
-        # Query training runs from database
-        runs = list(db.ai_training_runs.find(
-            {"api_id": api_id},
-            {"_id": 0}
-        ).sort("started_at", -1).limit(limit))
-        
-        print(f"[AI Training Service] Found {len(runs)} training runs")
-        
-        if not runs:
-            print("[AI Training Service] No training runs found for this API")
-            return jsonify([])
-        
-        return jsonify(runs)
-        
-    except Exception as e:
-        print(f"[AI Training Service] Error fetching training runs: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify([]), 500
-
-@app.route("/debug/routes", methods=["GET"])
-def debug_routes():
-    """Debug endpoint to list all registered routes."""
-    routes = []
-    for rule in app.url_map.iter_rules():
-        routes.append({
-            "endpoint": rule.endpoint,
-            "methods": list(rule.methods),
-            "rule": str(rule)
-        })
-    return jsonify({"routes": routes})
-
 if __name__ == "__main__":
     print("=" * 60)
     print("AI TRAINING SERVICE - Separate Port (5001)")
@@ -550,10 +430,8 @@ if __name__ == "__main__":
     if init_mongodb():
         print("[AI Training Service] Ready to accept training requests")
         print("[AI Training Service] Training Mode: FULL (50 epochs)")
-        print("[AI Training Service] Endpoints:")
-        print("  - POST /train/full")
-        print("  - GET /api/ai/training_runs/<api_id>")
-        print("  - GET /health")
+        print("[AI Training Service] Endpoint: POST /train/full")
+        print("[AI Training Service] Health Check: GET /health")
         print("=" * 60)
         
         # Run on port 5001

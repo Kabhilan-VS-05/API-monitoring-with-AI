@@ -6,19 +6,13 @@ Fetches commits, pull requests, and related data from GitHub API
 import requests
 from datetime import datetime, timedelta
 import os
-from typing import Any
-try:
-    from security_manager import decrypt_if_needed
-except Exception:
-    def decrypt_if_needed(value: Any) -> Any:
-        return value
 
 class GitHubIntegration:
     def __init__(self, token, mongo_db):
-        self.token = decrypt_if_needed(token)
+        self.token = token
         self.db = mongo_db
         self.headers = {
-            "Authorization": f"token {self.token}",
+            "Authorization": f"token {token}",
             "Accept": "application/vnd.github.v3+json"
         }
         self.base_url = "https://api.github.com"

@@ -9,10 +9,7 @@ import sys
 import os
 from datetime import datetime
 from pymongo import MongoClient
-try:
-    from self_healing import SelfHealingManager
-except Exception:
-    SelfHealingManager = None
+from bson import ObjectId
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -62,8 +59,24 @@ def train_model_worker(api_id, force_retrain, mongodb_uri, mongodb_db, result_qu
                         print(f"[Process Worker {os.getpid()}] Sending AI prediction alert...")
                         from ai_alert_manager import AIAlertManager
                         ai_alert_mgr = AIAlertManager(db)
-                        ai_alert_mgr.check_and_alert_single_api(api_id)
-                        print(f"[Process Worker {os.getpid()}] Alert sent successfully")
+                        api_url = "Unknown API"
+                        try:
+                            api_doc = db.monitored_apis.find_one({"_id": ObjectId(api_id)})
+                            if api_doc:
+                                api_url = api_doc.get("url", "Unknown API")
+                        except Exception:
+                            # Keep fallback URL if ObjectId conversion or lookup fails
+                            pass
+
+                        alert_result = ai_alert_mgr.create_ai_prediction_alert(
+                            api_id,
+                            api_url,
+                            prediction
+                        )
+                        if alert_result and alert_result.get("success"):
+                            print(f"[Process Worker {os.getpid()}] Alert sent successfully")
+                        else:
+                            print(f"[Process Worker {os.getpid()}] Alert send failed: {alert_result}")
                     else:
                         print(f"[Process Worker {os.getpid()}] Alert already exists")
                 else:
@@ -118,7 +131,6 @@ class ProcessTaskManager:
         self.task_results = {}
         self.monitor_thread = None
         self.running = False
-        self.self_healer = None
         
         # Set multiprocessing start method
         try:
@@ -126,12 +138,6 @@ class ProcessTaskManager:
         except RuntimeError:
             # Already set
             pass
-        # Initialize self-healer if available
-        try:
-            if SelfHealingManager is not None:
-                self.self_healer = SelfHealingManager(None, mongodb_uri, mongodb_db)
-        except Exception:
-            self.self_healer = None
     
     def start(self):
         """Start the result monitor thread"""
@@ -187,34 +193,6 @@ class ProcessTaskManager:
                 # Clean up finished processes
                 for task_id, process in list(self.active_processes.items()):
                     if not process.is_alive():
-                        # Unexpected termination: attempt self-healing if possible
-                        if task_id not in self.task_results and self.self_healer is not None:
-                            try:
-                                # Extract api_id from task_id format: train_<api_id>_timestamp
-                                parts = task_id.split("_")
-                                if len(parts) >= 2:
-                                    api_id = parts[1]
-                                    # Try to lookup monitored API and take recovery actions
-                                    try:
-                                        from pymongo import MongoClient
-                                        client = MongoClient(self.mongodb_uri)
-                                        db = client[self.mongodb_db]
-                                        api_doc = db.monitored_apis.find_one({"_id": api_id})
-                                        # If stored as ObjectId string, try to match
-                                        if not api_doc:
-                                            from bson import ObjectId
-                                            try:
-                                                api_doc = db.monitored_apis.find_one({"_id": ObjectId(api_id)})
-                                            except Exception:
-                                                api_doc = None
-                                        if api_doc:
-                                            print(f"[Process Task Manager] Process {task_id} died unexpectedly — attempting self-heal for API {api_id}")
-                                            heal = self.self_healer.evaluate_and_heal(api_doc)
-                                            print(f"[Process Task Manager] Self-heal result: {heal}")
-                                    except Exception as e:
-                                        print(f"[Process Task Manager] Self-heal lookup error: {e}")
-                            except Exception:
-                                pass
                         del self.active_processes[task_id]
                 
                 time.sleep(0.5)

@@ -75,6 +75,8 @@ class CategoryAwareAIPredictor:
         # Model parameters
         self.sequence_length = 20
         self.n_features = 10
+        self.min_training_sequences = 25
+        self.min_prediction_observations = 5
         
         # Category-specific models
         self.category_models = {}  # {category: {"lstm": model, "autoencoder": model, "scaler": scaler}}
@@ -158,6 +160,13 @@ class CategoryAwareAIPredictor:
         
         try:
             paths = self._get_category_path(category)
+            config = {}
+            if os.path.exists(paths["config"]):
+                try:
+                    with open(paths["config"], "r") as f:
+                        config = json.load(f)
+                except Exception:
+                    config = {}
             
             # Check if all files exist
             if not all(os.path.exists(p) for p in [paths["lstm"], paths["autoencoder"], paths["scaler"]]):
@@ -175,8 +184,14 @@ class CategoryAwareAIPredictor:
             self.category_models[category] = {
                 "lstm": lstm_model,
                 "autoencoder": autoencoder_model,
-                "scaler": scaler
+                "scaler": scaler,
+                "ml_ready": bool(config.get("ml_ready", True))
             }
+            if "anomaly_threshold" in config:
+                try:
+                    self.category_models[category]["anomaly_threshold"] = float(config["anomaly_threshold"])
+                except (TypeError, ValueError):
+                    pass
             
             return True
         except Exception as e:
@@ -253,33 +268,48 @@ class CategoryAwareAIPredictor:
             from sklearn.preprocessing import StandardScaler
             models["scaler"] = StandardScaler()
             print(f"[AI] Created new unfitted scaler for {category}")
+
+        config = {}
+        if os.path.exists(paths["config"]):
+            try:
+                with open(paths["config"], "r") as f:
+                    config = json.load(f)
+            except Exception:
+                config = {}
+        models["ml_ready"] = bool(config.get("ml_ready", True))
+        if "anomaly_threshold" in config:
+            try:
+                models["anomaly_threshold"] = float(config["anomaly_threshold"])
+            except (TypeError, ValueError):
+                pass
         
         self.category_models[category] = models
         return models
     
     def _get_api_category(self, api_id):
         """Get category for an API"""
-        api = self.db.monitored_apis.find_one({"_id": ObjectId(api_id)})
+        try:
+            api = self.db.monitored_apis.find_one({"_id": ObjectId(api_id)})
+        except Exception:
+            api = self.db.monitored_apis.find_one({"_id": api_id})
         if api and api.get("category"):
             return api["category"]
         return "REST API"  # Default category
     
-    def _extract_time_series(self, api_id, hours=48):
+    def _extract_time_series(self, api_id, hours=48, allow_padding=False):
         """Extract time-series data for LSTM"""
-        from bson import ObjectId
-        
+        category = self._get_api_category(api_id)
         time_threshold = (datetime.utcnow() - timedelta(hours=hours)).isoformat() + "Z"
         
         logs = list(self.db.monitoring_logs.find({
             "api_id": api_id,
+            "check_skipped": {"$ne": True},
             "timestamp": {"$gte": time_threshold}
         }).sort("timestamp", 1))
-        
-        if len(logs) < self.sequence_length + 1:
-            return None, None, None
-        
-        # Get API category
-        category = self._get_api_category(api_id)
+
+        if len(logs) < 2:
+            return None, None, category
+
         category_config = API_CATEGORIES.get(category, API_CATEGORIES["REST API"])
         
         features_list = []
@@ -335,14 +365,27 @@ class CategoryAwareAIPredictor:
         # Create sequences
         sequences = []
         labels = []
-        
+
+        if len(features_list) <= self.sequence_length:
+            if allow_padding and len(features_list) >= self.min_prediction_observations:
+                pad_count = self.sequence_length - len(features_list)
+                first = features_list[0]
+                padded_seq = ([first] * pad_count) + features_list
+                sequences.append(padded_seq)
+                labels.append(labels_list[-1])
+                return np.array(sequences, dtype=np.float32), np.array(labels, dtype=np.float32), category
+            return None, None, category
+
         for i in range(len(features_list) - self.sequence_length):
             seq = features_list[i:i + self.sequence_length]
             label = labels_list[i + self.sequence_length]
             sequences.append(seq)
             labels.append(label)
-        
-        return np.array(sequences), np.array(labels), category
+
+        if not sequences:
+            return None, None, category
+
+        return np.array(sequences, dtype=np.float32), np.array(labels, dtype=np.float32), category
     
     def _train_category_model(self, category, api_ids, epochs=50, batch_size=32, progress_callback=None):
         """Trains models for a specific category"""
@@ -355,7 +398,7 @@ class CategoryAwareAIPredictor:
         all_labels = []
         
         for api_id in api_ids:
-            sequences, labels, _ = self._extract_time_series(api_id, hours=48)
+            sequences, labels, _ = self._extract_time_series(api_id, hours=48, allow_padding=False)
             if sequences is not None and len(sequences) > 0:
                 all_sequences.append(sequences)
                 all_labels.append(labels)
@@ -366,6 +409,7 @@ class CategoryAwareAIPredictor:
         
         X = np.vstack(all_sequences)
         y = np.concatenate(all_labels)
+        unique_labels = np.unique(y)
         
         print(f"Training on {len(X)} sequences from {len(api_ids)} APIs")
         if progress_callback:
@@ -374,6 +418,47 @@ class CategoryAwareAIPredictor:
                 progress=10.0,
                 message="Preparing training dataset..."
             )
+
+        if len(X) < self.min_training_sequences or len(unique_labels) < 2:
+            paths = self._get_category_path(category)
+            from sklearn.preprocessing import StandardScaler
+
+            n_samples, n_steps, n_features = X.shape
+            scaler = StandardScaler()
+            scaler.fit(X.reshape(-1, n_features))
+            with open(paths["scaler"], "wb") as f:
+                pickle.dump(scaler, f)
+
+            baseline_reason = (
+                f"Insufficient balanced data for neural training (samples={len(X)}, "
+                f"classes={len(unique_labels)}). Falling back to statistical prediction."
+            )
+            config = {
+                "category": category,
+                "sequence_length": self.sequence_length,
+                "n_features": self.n_features,
+                "trained": False,
+                "ml_ready": False,
+                "fallback": "statistical",
+                "reason": baseline_reason,
+                "last_trained": datetime.utcnow().isoformat(),
+                "samples": int(len(X)),
+                "class_distribution": {
+                    "up": int(np.sum(y == 0)),
+                    "down": int(np.sum(y == 1))
+                }
+            }
+            with open(paths["config"], "w") as f:
+                json.dump(config, f)
+
+            if category in self.category_models:
+                self.category_models[category]["scaler"] = scaler
+                self.category_models[category]["ml_ready"] = False
+            else:
+                self.category_models[category] = {"scaler": scaler, "ml_ready": False}
+
+            print(f"[AI] {baseline_reason}")
+            return {"accuracy": None, "auc": None, "samples": len(X), "trained": False, "reason": baseline_reason}
         
         # Load or create models for this category
         models = self._load_or_create_category_models(category)
@@ -385,7 +470,7 @@ class CategoryAwareAIPredictor:
         X_scaled = X_scaled.reshape(n_samples, n_steps, n_features)
         
         # Split data
-        split_idx = int(len(X_scaled) * 0.8)
+        split_idx = max(1, min(len(X_scaled) - 1, int(len(X_scaled) * 0.8)))
         X_train, X_val = X_scaled[:split_idx], X_scaled[split_idx:]
         y_train, y_val = y[:split_idx], y[split_idx:]
         
@@ -434,7 +519,14 @@ class CategoryAwareAIPredictor:
             epochs=epochs,
             batch_size=batch_size,
             verbose=1,
-            callbacks=lstm_callbacks
+            callbacks=lstm_callbacks,
+            class_weight=(
+                {
+                    0: float(max(1, np.sum(y_train == 1))) / float(max(1, np.sum(y_train == 0))),
+                    1: float(max(1, np.sum(y_train == 0))) / float(max(1, np.sum(y_train == 1)))
+                }
+                if len(np.unique(y_train)) == 2 else None
+            )
         )
 
         actual_epochs = len(history.history['loss'])
@@ -454,6 +546,7 @@ class CategoryAwareAIPredictor:
 
         # Evaluate
         loss, acc, auc = models["lstm"].evaluate(X_val, y_val, verbose=0)
+        models["ml_ready"] = True
         print(f"\n[{category}] LSTM Accuracy: {acc*100:.2f}%")
         print(f"[{category}] LSTM AUC: {auc:.3f}")
 
@@ -539,8 +632,14 @@ class CategoryAwareAIPredictor:
             "accuracy": float(acc),
             "auc": float(auc),
             "trained": True,
+            "ml_ready": True,
             "last_trained": datetime.utcnow().isoformat()
         }
+        if models.get("anomaly_threshold") is not None:
+            try:
+                config["anomaly_threshold"] = float(models.get("anomaly_threshold"))
+            except (TypeError, ValueError):
+                pass
         with open(paths["config"], 'w') as f:
             json.dump(config, f)
         
@@ -602,12 +701,12 @@ class CategoryAwareAIPredictor:
                 del self.category_models[category]
         else:
             # Only skip if not forcing retrain
-            if category in self.category_models:
+            if category in self.category_models and self.category_models[category].get("ml_ready", False):
                 print(f"[AI] Model for '{category}' already trained and loaded. Skipping training.")
                 return True
             
             # Try to load existing model
-            if self._load_category_model(category):
+            if self._load_category_model(category) and self.category_models.get(category, {}).get("ml_ready", False):
                 print(f"[AI] Loaded existing model for '{category}'. Skipping training.")
                 return True
         
@@ -649,18 +748,16 @@ class CategoryAwareAIPredictor:
         """Predict failure using category-specific model"""
         try:
             print(f"[AI] predict_failure called for api_id: {api_id}")
-            sequences, _, category = self._extract_time_series(api_id, hours=48)
+            category = self._get_api_category(api_id)
+            sequences, _, category = self._extract_time_series(api_id, hours=48, allow_padding=True)
             
             if sequences is None:
                 print(f"[AI] No sequences returned - insufficient data")
-                return {
-                    "will_fail": False,
-                    "confidence": 0.0,
-                    "reason": "Insufficient data",
-                    "risk_score": 0,
-                    "method": "none",
-                    "category": category
-                }
+                return self._statistical_prediction(
+                    api_id,
+                    category,
+                    reason_override="Insufficient sequence data for neural model; using statistical fallback."
+                )
             
             print(f"[AI] Got {len(sequences)} sequences, category: {category}")
 
@@ -677,7 +774,20 @@ class CategoryAwareAIPredictor:
 
             if self.use_ml:
                 # Load category-specific models
+                if training_meta and training_meta.get("ml_ready") is False:
+                    return self._statistical_prediction(
+                        api_id,
+                        category,
+                        reason_override=training_meta.get("reason") or "Model not ML-ready; using statistical fallback."
+                    )
+
                 models = self._load_or_create_category_models(category)
+                if models.get("ml_ready") is False:
+                    return self._statistical_prediction(
+                        api_id,
+                        category,
+                        reason_override="Model metadata indicates fallback mode; using statistical prediction."
+                    )
                 
                 # Use last sequence
                 last_seq = sequences[-1:]
@@ -688,14 +798,14 @@ class CategoryAwareAIPredictor:
                 
                 if n_steps != self.sequence_length or n_features != self.n_features:
                     print(f"[AI] Shape mismatch detected - returning insufficient data message")
-                    return {
-                        "will_fail": False,
-                        "confidence": 0.0,
-                        "reason": f"Insufficient data (need {self.sequence_length} time steps, have {n_steps})",
-                        "risk_score": 0,
-                        "method": "none",
-                        "category": category
-                    }
+                    return self._statistical_prediction(
+                        api_id,
+                        category,
+                        reason_override=(
+                            f"Shape mismatch for neural input (need {self.sequence_length}, got {n_steps}); "
+                            "using statistical fallback."
+                        )
+                    )
                 
                 seq_reshaped = last_seq.reshape(-1, n_features)
                 
@@ -704,14 +814,11 @@ class CategoryAwareAIPredictor:
                     seq_scaled = models["scaler"].transform(seq_reshaped)
                 except Exception as scaler_error:
                     print(f"[AI] Scaler not fitted for category {category}: {scaler_error}")
-                    return {
-                        "will_fail": False,
-                        "confidence": 0.0,
-                        "reason": f"Model not trained for category: {category}. Run training first.",
-                        "risk_score": 0,
-                        "method": "none",
-                        "category": category
-                    }
+                    return self._statistical_prediction(
+                        api_id,
+                        category,
+                        reason_override=f"Scaler/model not ready for category {category}; using statistical fallback."
+                    )
                 
                 seq_scaled = seq_scaled.reshape(n_samples, n_steps, n_features)
                 
@@ -731,7 +838,10 @@ class CategoryAwareAIPredictor:
                 combined_score = (lstm_prediction * 0.7) + (anomaly_score * 0.3)
                 
                 # Get recent data for context
-                recent_logs = list(self.db.monitoring_logs.find({"api_id": api_id}).sort("timestamp", -1).limit(50))
+                recent_logs = list(self.db.monitoring_logs.find({
+                    "api_id": api_id,
+                    "check_skipped": {"$ne": True}
+                }).sort("timestamp", -1).limit(50))
                 
                 # Calculate actual failure rate for calibration
                 actual_failure_rate = 0.0
@@ -967,11 +1077,12 @@ class CategoryAwareAIPredictor:
 
         return risk_factors[:5]
     
-    def _statistical_prediction(self, api_id, category):
+    def _statistical_prediction(self, api_id, category, reason_override=None):
         """Fallback statistical prediction"""
         time_threshold = (datetime.utcnow() - timedelta(hours=24)).isoformat() + "Z"
         recent_logs = list(self.db.monitoring_logs.find({
             "api_id": api_id,
+            "check_skipped": {"$ne": True},
             "timestamp": {"$gte": time_threshold}
         }).sort("timestamp", -1).limit(50))
         
@@ -979,11 +1090,12 @@ class CategoryAwareAIPredictor:
             return {
                 "will_fail": False,
                 "confidence": 0.0,
-                "reason": "Insufficient data",
+                "reason": reason_override or "Insufficient data",
                 "risk_score": 0,
                 "risk_level": "low",
                 "method": "statistical",
                 "category": category,
+                "failure_probability": 0.0,
                 "lstm_score": 0.0,
                 "anomaly_score": 0.0,
                 "combined_score": 0.0,
@@ -1009,11 +1121,14 @@ class CategoryAwareAIPredictor:
             expected_failure_rate = 0.05
         
         risk_score = int(min((failure_rate / expected_failure_rate) * 100, 100))
+        failure_probability = min(max(risk_score / 100.0, 0.0), 1.0)
+        confidence = min(0.95, max(0.35, 0.45 + (len(recent_logs) / 100.0)))
         
         return {
-            "will_fail": risk_score > 70,
-            "confidence": risk_score / 100,
-            "reason": f"Failure rate: {failure_rate*100:.1f}% ({category})",
+            "will_fail": risk_score >= 70,
+            "failure_probability": failure_probability,
+            "confidence": confidence,
+            "reason": reason_override or f"Failure rate: {failure_rate*100:.1f}% ({category})",
             "risk_score": risk_score,
             "risk_level": "high" if risk_score >= 70 else "medium" if risk_score >= 40 else "low",
             "method": "statistical",
@@ -1047,6 +1162,8 @@ class CategoryAwareAIPredictor:
             models = self._load_or_create_category_models(category)
             if "autoencoder" not in models or "scaler" not in models:
                 return []
+            if models.get("ml_ready") is False:
+                return []
 
             # Scale the data
             n_samples, n_steps, n_features = sequences.shape
@@ -1079,6 +1196,7 @@ class CategoryAwareAIPredictor:
             time_threshold = (datetime.utcnow() - timedelta(hours=hours)).isoformat() + "Z"
             logs = list(self.db.monitoring_logs.find({
                 "api_id": api_id,
+                "check_skipped": {"$ne": True},
                 "timestamp": {"$gte": time_threshold}
             }).sort("timestamp", 1))
 
